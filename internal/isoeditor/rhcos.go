@@ -215,43 +215,58 @@ func (e *rhcosEditor) addIgnitionArchive(clusterISOPath, ignition string, igniti
 	return writeAt(archiveBytes, int64(ignitionOffset), clusterISOPath)
 }
 
-func (e *rhcosEditor) addCustomRAMDisk(clusterISOPath, staticNetworkConfig string, clusterProxyInfo *ClusterProxyInfo, ramdiskOffsetInfo *OffsetInfo) error {
+func RamDiskImageArchive(filesList []staticnetworkconfig.StaticNetworkConfigData, clusterProxyInfo *ClusterProxyInfo) ([]byte, error) {
 	buffer := new(bytes.Buffer)
 	w := cpio.NewWriter(buffer)
-	if staticNetworkConfig != "" {
-		filesList, newErr := e.staticNetworkConfig.GenerateStaticNetworkConfigData(staticNetworkConfig)
-		if newErr != nil {
-			return newErr
-		}
+
+	if filesList != nil && len(filesList) > 0 {
 		for _, file := range filesList {
 			err := addFileToArchive(w, filepath.Join("/etc/assisted/network", file.FilePath), file.FileContents, 0o600)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 		scriptPath := "/usr/lib/dracut/hooks/initqueue/settled/90-assisted-pre-static-network-config.sh"
 		scriptContent := constants.PreNetworkConfigScript
 
 		if err := addFileToArchive(w, scriptPath, scriptContent, 0o755); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	if clusterProxyInfo.HTTPProxy != "" || clusterProxyInfo.HTTPSProxy != "" {
+
+	if clusterProxyInfo != nil && (clusterProxyInfo.HTTPProxy != "" || clusterProxyInfo.HTTPSProxy != "") {
 		rootfsServiceConfigPath := "/etc/systemd/system/coreos-livepxe-rootfs.service.d/10-proxy.conf"
-		rootfsServiceConfig, err := e.formatRootfsServiceConfigFile(clusterProxyInfo)
+		rootfsServiceConfig, err := formatRootfsServiceConfigFile(clusterProxyInfo)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := addFileToArchive(w, rootfsServiceConfigPath, rootfsServiceConfig, 0o664); err != nil {
-			return err
+			return nil, err
 		}
 	}
+
 	if err := w.Close(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Compress custom RAM disk
-	compressedArchive, err := getCompressedArchive(buffer)
+	return getCompressedArchive(buffer)
+}
+
+func (e *rhcosEditor) addCustomRAMDisk(clusterISOPath, staticNetworkConfig string, clusterProxyInfo *ClusterProxyInfo, ramdiskOffsetInfo *OffsetInfo) error {
+	var (
+		filesList []staticnetworkconfig.StaticNetworkConfigData
+		err       error
+	)
+
+	if staticNetworkConfig != "" {
+		filesList, err = e.staticNetworkConfig.GenerateStaticNetworkConfigData(staticNetworkConfig)
+		if err != nil {
+			return err
+		}
+	}
+
+	compressedArchive, err := RamDiskImageArchive(filesList, clusterProxyInfo)
 	if err != nil {
 		return err
 	}
@@ -265,7 +280,7 @@ func (e *rhcosEditor) addCustomRAMDisk(clusterISOPath, staticNetworkConfig strin
 	return writeAt(compressedArchive, int64(ramdiskOffsetInfo.Offset), clusterISOPath)
 }
 
-func (e *rhcosEditor) formatRootfsServiceConfigFile(clusterProxyInfo *ClusterProxyInfo) (string, error) {
+func formatRootfsServiceConfigFile(clusterProxyInfo *ClusterProxyInfo) (string, error) {
 	var rootfsServicConfigParams = map[string]string{
 		"HTTP_PROXY":  clusterProxyInfo.HTTPProxy,
 		"HTTPS_PROXY": clusterProxyInfo.HTTPSProxy,
