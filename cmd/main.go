@@ -208,8 +208,8 @@ func main() {
 	ignitionBuilder := ignition.NewBuilder(log.WithField("pkg", "ignition"), staticNetworkConfig)
 	isoEditorFactory := isoeditor.NewFactory(Options.ISOEditorConfig, staticNetworkConfig)
 
-	var objectHandler = createStorageClient(Options.DeployTarget, Options.Storage, &Options.S3Config,
-		Options.JobConfig.WorkDir, log, versionHandler, isoEditorFactory)
+	objectHandler := createStorageClient(Options.DeployTarget, Options.Storage, &Options.S3Config,
+		Options.JobConfig.WorkDir, log, versionHandler, isoEditorFactory, staticNetworkConfig)
 	createS3Bucket(objectHandler, log)
 
 	manifestsApi := manifests.NewManifestsAPI(db, log.WithField("pkg", "manifests"), objectHandler)
@@ -519,15 +519,16 @@ func createS3Bucket(objectHandler s3wrapper.API, log logrus.FieldLogger) {
 }
 
 func createStorageClient(deployTarget string, storage string, s3cfg *s3wrapper.Config, fsWorkDir string,
-	log logrus.FieldLogger, versionsHandler versions.Handler, isoEditorFactory isoeditor.Factory) s3wrapper.API {
+	log logrus.FieldLogger, versionsHandler versions.Handler, isoEditorFactory isoeditor.Factory,
+	staticNetworkConfig staticnetworkconfig.StaticNetworkConfig) s3wrapper.API {
 	var storageClient s3wrapper.API
 	if storage == "s3" || (storage == "" && deployTarget == deployment_type_k8s) {
-		storageClient = s3wrapper.NewS3Client(s3cfg, log, versionsHandler, isoEditorFactory)
+		storageClient = s3wrapper.NewS3Client(s3cfg, log, versionsHandler, isoEditorFactory, staticNetworkConfig)
 		if storageClient == nil {
 			log.Fatal("failed to create S3 client")
 		}
 	} else if storage == "filesystem" || (storage == "" && deployTarget == deployment_type_onprem || deployTarget == deployment_type_ocp) {
-		storageClient = s3wrapper.NewFSClient(fsWorkDir, log, versionsHandler, isoEditorFactory)
+		storageClient = s3wrapper.NewFSClient(fsWorkDir, log, versionsHandler, isoEditorFactory, staticNetworkConfig)
 	} else {
 		log.Fatalf("unsupported storage configuration: storage type '%s', deploy target '%s'", storage, deployTarget)
 	}

@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"math"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -14,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/openshift/assisted-service/internal/isoeditor"
 	logutil "github.com/openshift/assisted-service/pkg/log"
+	"github.com/openshift/assisted-service/pkg/staticnetworkconfig"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -22,37 +25,49 @@ const minimumPartSizeBytes = 5 * 1024 * 1024    // 5MB
 const copyPartChunkSizeBytes = 64 * 1024 * 1024 // 64MB
 
 type ISOUploaderAPI interface {
-	UploadISO(ctx context.Context, ignitionConfig, srcObjectName, destObjectName string) error
+	UploadISO(ctx context.Context, ignitionConfig string, staticNetworkConfig string, proxyInfo *isoeditor.ClusterProxyInfo, srcObjectName string, destObjectName string) error
 }
 
 var _ ISOUploaderAPI = &ISOUploader{}
 
 type ISOUploader struct {
-	log          logrus.FieldLogger
-	s3client     s3iface.S3API
-	bucket       string
-	publicBucket string
-	infoCache    []isoInfo
+	log              logrus.FieldLogger
+	s3client         s3iface.S3API
+	bucket           string
+	publicBucket     string
+	infoCache        []isoInfo
+	netConfGenerator staticnetworkconfig.StaticNetworkConfig
 }
 
 type isoInfo struct {
-	etag            string
-	baseObjectSize  int64
-	areaOffsetBytes int64
-	areaLengthBytes int64
+	etag           string
+	baseObjectSize int64
+	ignOffsetBytes int64
+	ignLengthBytes int64
+	rdOffsetBytes  int64
+	rdLengthBytes  int64
+	minimal        bool
 }
 
-func NewISOUploader(logger logrus.FieldLogger, s3Client s3iface.S3API, bucket, publicBucket string) *ISOUploader {
-	return &ISOUploader{log: logger, s3client: s3Client, bucket: bucket, publicBucket: publicBucket}
+func NewISOUploader(logger logrus.FieldLogger, s3Client s3iface.S3API, bucket, publicBucket string, staticNetworkConfig staticnetworkconfig.StaticNetworkConfig) *ISOUploader {
+	return &ISOUploader{log: logger, s3client: s3Client, bucket: bucket, publicBucket: publicBucket, netConfGenerator: staticNetworkConfig}
 }
 
-func (u *ISOUploader) UploadISO(ctx context.Context, ignitionConfig, srcObjectName, destObjectName string) error {
+func (u *ISOUploader) UploadISO(ctx context.Context, ignitionConfig string, staticNetworkConfig string, proxyInfo *isoeditor.ClusterProxyInfo, srcObjectName string, destObjectName string) error {
 	log := logutil.FromContext(ctx, u.log)
 	log.Debugf("Started upload of ISO %s", destObjectName)
 
-	baseISOInfo, origContents, err := u.getISOInfo(srcObjectName, log)
+	baseISOInfo, origIgnContents, origRdContents, err := u.getISOInfo(srcObjectName, log)
 	if err != nil {
 		err = errors.Wrapf(err, "Failed to fetch base ISO information")
+		log.Error(err)
+		return err
+	}
+
+	// If the two embedded areas are within the same part we're gonna have a bad time
+	// TODO make this work - I don't think we can guarentee 5MB between these files
+	if baseISOInfo.minimal && math.Abs(float64(baseISOInfo.ignOffsetBytes-baseISOInfo.rdOffsetBytes)) < minimumPartSizeBytes {
+		err = errors.New("Ignition and ramdisk reserved areas are within the minimum part size, this is not supported")
 		log.Error(err)
 		return err
 	}
@@ -62,11 +77,12 @@ func (u *ISOUploader) UploadISO(ctx context.Context, ignitionConfig, srcObjectNa
 		log:             log,
 		uploader:        u,
 		isoInfo:         baseISOInfo,
-		origContents:    origContents,
+		origIgnContents: origIgnContents,
+		origRdContents:  origRdContents,
 		sourceObjectKey: srcObjectName,
 		destObjectKey:   destObjectName,
 	}
-	err = upload.Upload(ignitionConfig)
+	err = upload.Upload(ignitionConfig, staticNetworkConfig, proxyInfo)
 	if err != nil {
 		err = errors.Wrapf(err, "Failed to create ISO %s", destObjectName)
 		log.Error(err)
@@ -75,10 +91,7 @@ func (u *ISOUploader) UploadISO(ctx context.Context, ignitionConfig, srcObjectNa
 	return nil
 }
 
-func (u *ISOUploader) getISOInfo(baseObjectName string, log logrus.FieldLogger) (*isoInfo, *[]byte, error) {
-	var info isoInfo
-	var origContents []byte
-
+func (u *ISOUploader) getISOInfo(baseObjectName string, log logrus.FieldLogger) (*isoInfo, *[]byte, *[]byte, error) {
 	// Get ETag from S3
 	headResp, err := u.s3client.HeadObject(&s3.HeadObjectInput{
 		Bucket: aws.String(u.publicBucket),
@@ -86,7 +99,7 @@ func (u *ISOUploader) getISOInfo(baseObjectName string, log logrus.FieldLogger) 
 	})
 	if err != nil {
 		log.WithError(err).Errorf("Failed to fetch metadata for base object %s", baseObjectName)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// See if the ISO info is cached
@@ -97,92 +110,160 @@ func (u *ISOUploader) getISOInfo(baseObjectName string, log logrus.FieldLogger) 
 		}
 	}
 	cachePath := filepath.Join("/tmp", *headResp.ETag)
+	ignCachePath := filepath.Join(cachePath, "ignition")
+	rdCachePath := filepath.Join(cachePath, "ramdisk")
+
+	var info isoInfo
+	var ignContents, rdContents *[]byte
 
 	if found == nil {
 		// Add to cache if not found
 		log.Infof("Did not find ISO info for %s in cache, will add", baseObjectName)
+		info.etag = *headResp.ETag
+		info.baseObjectSize = *headResp.ContentLength
+
 		var offset, length int64
-		offset, length, err = u.getISOHeaderInfo(log, baseObjectName, *headResp.ContentLength)
+		rdInfo, ignInfo, err := u.getISOHeaderInfo(log, baseObjectName, *headResp.ContentLength)
 		if err != nil {
 			err = errors.Wrapf(err, "Failed to get base ISO info for %s from S3", baseObjectName)
 			log.Error(err)
-			return nil, nil, err
-		}
-		info.etag = *headResp.ETag
-		info.baseObjectSize = *headResp.ContentLength
-		info.areaLengthBytes = length
-		info.areaOffsetBytes = offset
-
-		var getRest *s3.GetObjectOutput
-		getRest, err = u.s3client.GetObject(&s3.GetObjectInput{
-			Bucket: aws.String(u.publicBucket),
-			Key:    aws.String(baseObjectName),
-			Range:  aws.String(fmt.Sprintf("bytes=%d-%d", offset, offset+minimumPartSizeBytes-1)),
-		})
-		if err != nil {
-			err = errors.Wrapf(err, "Failed to fetch embedded area of live ISO %s", baseObjectName)
-			log.Error(err)
-			return nil, nil, err
-		}
-		origContents, err = ioutil.ReadAll(getRest.Body)
-		if err != nil {
-			err = errors.Wrapf(err, "Failed to fetch body from embedded area of live ISO %s", baseObjectName)
-			log.Error(err)
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
-		err = ioutil.WriteFile(cachePath, origContents, 0600)
+		info.ignLengthBytes = int64(ignInfo.Length)
+		info.ignOffsetBytes = int64(ignInfo.Offset)
+		ignContents, err = u.cacheOriginalPart(baseObjectName, info.ignOffsetBytes)
 		if err != nil {
-			// If we fail here, continue without adding to cache rather than failing the entire operation
-			log.WithError(err).Errorf("Failed to cache embedded area to file %s", cachePath)
-		} else {
-			u.infoCache = append(u.infoCache, info)
+			log.Error(err)
+			return nil, nil, nil, err
 		}
+
+		if rdInfo != nil {
+			info.minimal = true
+			info.rdLengthBytes = int64(rdInfo.Length)
+			info.rdOffsetBytes = int64(rdInfo.Offset)
+			rdContents, err = u.cacheOriginalPart(baseObjectName, info.rdOffsetBytes)
+			if err != nil {
+				log.Error(err)
+				return nil, nil, nil, err
+			}
+		}
+		u.addToInfoCache(ignContents, ignCachePath, rdContents, rdCachePath, &info, log)
 	} else {
 		// Return from cache
 		log.Debugf("Found ISO info for %s in cache", baseObjectName)
-		origContents, err = ioutil.ReadFile(cachePath)
-		if err != nil {
-			err = errors.Wrapf(err, "Failed to fetch embedded area of live ISO %s from disk cache", baseObjectName)
-			log.Error(err)
-			return nil, nil, err
-		}
 		info = *found
+
+		ignBytes, err := ioutil.ReadFile(ignCachePath)
+		if err != nil {
+			err = errors.Wrapf(err, "Failed to fetch ignition embedded area of live ISO %s from disk cache", baseObjectName)
+			log.Error(err)
+			return nil, nil, nil, err
+		}
+		ignContents = &ignBytes
+
+		if info.minimal {
+			rdBytes, err := ioutil.ReadFile(rdCachePath)
+			if err != nil {
+				err = errors.Wrapf(err, "Failed to fetch ramdisk embedded area of minimal live ISO %s from disk cache", baseObjectName)
+				log.Error(err)
+				return nil, nil, nil, err
+			}
+			rdContents = &rdBytes
+		}
 	}
-	return &info, &origContents, nil
+	return &info, ignContents, rdContents, nil
 }
 
-func (u *ISOUploader) getISOHeaderInfo(log logrus.FieldLogger, baseObjectName string, baseObjectSize int64) (int64, int64, error) {
-	// Download header of the live ISO (last 24 bytes of the first 32KB)
+func (u *ISOUploader) addToInfoCache(ignContents *[]byte, ignPath string, rdContents *[]byte, rdPath string, info *isoInfo, log logrus.FieldLogger) {
+	// If we fail anywhere in this function, continue without adding to cache rather than failing the entire operation
+	err := ioutil.WriteFile(ignPath, *ignContents, 0600)
+	if err != nil {
+		log.WithError(err).Errorf("failed to cache ignition embedded area to file %s", ignPath)
+		return
+	}
+
+	err = ioutil.WriteFile(rdPath, *rdContents, 0600)
+	if err != nil {
+		log.WithError(err).Errorf("failed to cache ramdisk embedded area to file %s", rdPath)
+		os.Remove(ignPath)
+		return
+	}
+	u.infoCache = append(u.infoCache, *info)
+}
+
+func (u *ISOUploader) cacheOriginalPart(baseObjectName string, offset int64) (*[]byte, error) {
+	var getRest *s3.GetObjectOutput
+	var err error
+	getRest, err = u.s3client.GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(u.publicBucket),
+		Key:    aws.String(baseObjectName),
+		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", offset, offset+minimumPartSizeBytes-1)),
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to fetch embedded area of live ISO %s", baseObjectName)
+	}
+
+	origContents, err := ioutil.ReadAll(getRest.Body)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read body from embedded area of live ISO %s", baseObjectName)
+	}
+
+	return &origContents, nil
+}
+
+func (u *ISOUploader) getISOHeaderInfo(log logrus.FieldLogger, baseObjectName string, baseObjectSize int64) (*isoeditor.OffsetInfo, *isoeditor.OffsetInfo, error) {
+	// Download header of the live ISO (last 48 bytes of the first 32KB)
 	getResp, err := u.s3client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(u.publicBucket),
 		Key:    aws.String(baseObjectName),
-		Range:  aws.String("bytes=32744-32767"),
+		Range:  aws.String("bytes=32720-32767"),
 	})
 	if err != nil {
 		log.WithError(err).Errorf("Failed to get header of object %s from bucket %s", baseObjectName, u.publicBucket)
-		return 0, 0, err
+		return nil, nil, err
 	}
 	headerString, err := ioutil.ReadAll(getResp.Body)
 	if err != nil {
 		log.WithError(err).Errorf("Failed to read header of object %s from bucket %s", baseObjectName, u.publicBucket)
-		return 0, 0, err
+		return nil, nil, err
 	}
 
-	ignOffsetInfo, err := isoeditor.GetIgnitionArea(headerString)
+	ramdiskHeader := headerString[0:24]
+	rdOffsetInfo, err := isoeditor.GetRamDiskArea(ramdiskHeader)
 	if err != nil {
-		return 0, 0, err
+		log.WithError(err).Warnf("Failed to read ramdisk embed info from %s, assuming full iso", baseObjectName)
+		rdOffsetInfo = nil
+	} else {
+		if err := validateEmbedArea(rdOffsetInfo, baseObjectSize); err != nil {
+			return nil, nil, err
+		}
 	}
 
+	ignitionHeader := headerString[24:48]
+	ignOffsetInfo, err := isoeditor.GetIgnitionArea(ignitionHeader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := validateEmbedArea(ignOffsetInfo, baseObjectSize); err != nil {
+		return nil, nil, err
+	}
+
+	return rdOffsetInfo, ignOffsetInfo, nil
+}
+
+func validateEmbedArea(info *isoeditor.OffsetInfo, baseObjectSize int64) error {
 	// For now we assume that the embedded area is less than 5MB, which is the minimum S3 part size
-	if ignOffsetInfo.Length > minimumPartSizeBytes {
-		return 0, 0, errors.New("ISO embedded area is larger than what is currently supported")
+	if info.Length > minimumPartSizeBytes {
+		return errors.New("ISO embedded area is larger than what is currently supported")
 	}
 
-	if ignOffsetInfo.Offset+minimumPartSizeBytes > uint64(baseObjectSize) {
-		return 0, 0, errors.New("Embedded area is too close to the end of the file, which is currently not handled")
+	if info.Offset+minimumPartSizeBytes > uint64(baseObjectSize) {
+		return errors.New("Embedded area is too close to the end of the file, which is currently not handled")
 	}
-	return int64(ignOffsetInfo.Offset), int64(ignOffsetInfo.Length), nil
+
+	return nil
 }
 
 type multiUpload struct {
@@ -190,7 +271,8 @@ type multiUpload struct {
 	log             logrus.FieldLogger
 	uploader        *ISOUploader
 	isoInfo         *isoInfo
-	origContents    *[]byte
+	origIgnContents *[]byte
+	origRdContents  *[]byte
 	wg              sync.WaitGroup
 	mutex           sync.Mutex
 	err             error
@@ -214,7 +296,7 @@ func (a completedParts) Len() int           { return len(a) }
 func (a completedParts) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a completedParts) Less(i, j int) bool { return *a[i].PartNumber < *a[j].PartNumber }
 
-func (m *multiUpload) Upload(ignitionConfig string) error {
+func (m *multiUpload) Upload(ignitionConfig string, staticNetworkConfig string, proxyInfo *isoeditor.ClusterProxyInfo) error {
 	m.log.Debugf("Creating multi-part upload of ISO %s", m.destObjectKey)
 	multiOut, err := m.uploader.s3client.CreateMultipartUploadWithContext(
 		m.ctx, &s3.CreateMultipartUploadInput{Bucket: aws.String(m.uploader.bucket), Key: aws.String(m.destObjectKey)})
@@ -233,13 +315,11 @@ func (m *multiUpload) Upload(ignitionConfig string) error {
 		go m.copyChunk(ch)
 	}
 
-	m.log.Debugf("Providing work for goroutines copying chunks for ISO %s", m.destObjectKey)
-	embeddedAreaPartNum := m.generateWorkForRange(ch, int64(1), 0, m.isoInfo.areaOffsetBytes-1)
-	m.generateWorkForRange(ch, embeddedAreaPartNum+1, m.isoInfo.areaOffsetBytes+minimumPartSizeBytes, m.isoInfo.baseObjectSize-1)
+	ignAreaPartNum, rdAreaPartNum := m.generateWorkForISO(ch)
 	close(ch)
 
 	m.log.Debugf("Uploading embedded area (compressed ignition config) for ISO %s", m.destObjectKey)
-	err = m.uploadIgnition(m.log, embeddedAreaPartNum, ignitionConfig)
+	err = m.uploadCustomParts(m.log, ignAreaPartNum, rdAreaPartNum, ignitionConfig, staticNetworkConfig, proxyInfo)
 	if err != nil {
 		m.log.Error(err)
 		m.seterr(err)
@@ -256,6 +336,32 @@ func (m *multiUpload) Upload(ignitionConfig string) error {
 	}
 	m.log.Debugf("Completed upload of ISO %s", m.destObjectKey)
 	return nil
+}
+
+func (m *multiUpload) generateWorkForISO(ch chan chunk) (ignAreaPartNum int64, rdAreaPartNum int64) {
+	m.log.Debugf("Providing work for goroutines copying chunks for ISO %s", m.destObjectKey)
+
+	// only need ramdisk for minimal iso
+	// TODO refactor this somehow?
+	if m.isoInfo.minimal {
+		if m.isoInfo.ignOffsetBytes < m.isoInfo.rdOffsetBytes {
+			ignAreaPartNum = m.generateWorkForRange(ch, int64(1), 0, m.isoInfo.ignOffsetBytes-1)
+			rdAreaPartNum = m.generateWorkForRange(ch, ignAreaPartNum+1, m.isoInfo.ignOffsetBytes+minimumPartSizeBytes, m.isoInfo.rdOffsetBytes-1)
+			m.generateWorkForRange(ch, rdAreaPartNum+1, m.isoInfo.rdOffsetBytes+minimumPartSizeBytes, m.isoInfo.baseObjectSize-1)
+		} else if m.isoInfo.rdOffsetBytes < m.isoInfo.ignOffsetBytes {
+			rdAreaPartNum = m.generateWorkForRange(ch, int64(1), 0, m.isoInfo.rdOffsetBytes-1)
+			ignAreaPartNum = m.generateWorkForRange(ch, rdAreaPartNum+1, m.isoInfo.rdOffsetBytes+minimumPartSizeBytes, m.isoInfo.ignOffsetBytes-1)
+			m.generateWorkForRange(ch, ignAreaPartNum+1, m.isoInfo.ignOffsetBytes+minimumPartSizeBytes, m.isoInfo.baseObjectSize-1)
+		} else {
+			// WAT, create an error for this?
+			panic("ignition offset and ramdisk offset should never be the same")
+		}
+	} else {
+		ignAreaPartNum = m.generateWorkForRange(ch, int64(1), 0, m.isoInfo.ignOffsetBytes-1)
+		m.generateWorkForRange(ch, ignAreaPartNum+1, m.isoInfo.ignOffsetBytes+minimumPartSizeBytes, m.isoInfo.baseObjectSize-1)
+	}
+
+	return
 }
 
 func (m *multiUpload) copyChunk(ch chan chunk) {
@@ -373,33 +479,61 @@ func (m *multiUpload) uploadPartCopy(c chunk) error {
 	return nil
 }
 
-func (m *multiUpload) uploadIgnition(log logrus.FieldLogger, partNum int64, ignitionConfig string) error {
+func (m *multiUpload) uploadCustomParts(log logrus.FieldLogger, ignPartNum int64, rdPartNum int64, ignitionConfig string, staticNetworkConfig string, proxyInfo *isoeditor.ClusterProxyInfo) error {
 	ignitionBytes, err := isoeditor.IgnitionImageArchive(ignitionConfig)
 	if err != nil {
-		m.log.Error(err)
-		return err
+		return errors.Wrap(err, "failed to generate ignition image archive")
 	}
 
-	if int64(len(ignitionBytes)) > m.isoInfo.areaLengthBytes {
-		err = errors.New(fmt.Sprintf("Ignition is too long to be embedded (%d > %d)", len(ignitionBytes), m.isoInfo.areaLengthBytes))
-		m.log.Error(err)
-		return err
+	if int64(len(ignitionBytes)) > m.isoInfo.ignLengthBytes {
+		return errors.New(fmt.Sprintf("ignition is too long to be embedded (%d > %d)", len(ignitionBytes), m.isoInfo.ignLengthBytes))
 	}
 
-	copy(*m.origContents, ignitionBytes)
+	if err := m.uploadCustomPart(m.origIgnContents, ignitionBytes, ignPartNum); err != nil {
+		return errors.Wrapf(err, "failed to upload ignition for file %s", m.destObjectKey)
+	}
 
-	contentLength := int64(len(*m.origContents))
+	if m.isoInfo.minimal && (staticNetworkConfig != "" || !proxyInfo.Empty()) {
+		var filesList []staticnetworkconfig.StaticNetworkConfigData
+		var err error
+		if staticNetworkConfig != "" {
+			filesList, err = m.uploader.netConfGenerator.GenerateStaticNetworkConfigData(staticNetworkConfig)
+			if err != nil {
+				return errors.Wrap(err, "failed to generate static network config files")
+			}
+		}
+
+		ramdiskBytes, err := isoeditor.RamDiskImageArchive(filesList, proxyInfo)
+		if err != nil {
+			return errors.Wrap(err, "failed to create ramdisk image")
+		}
+
+		// Ensures RAM placeholder is large enough to accommodate the compressed archive
+		if int64(len(ramdiskBytes)) > m.isoInfo.rdLengthBytes {
+			return errors.Errorf("custom RAM disk is too long to be embedded (%d bytes > %d bytes)", len(ramdiskBytes), m.isoInfo.rdLengthBytes)
+		}
+
+		if err := m.uploadCustomPart(m.origRdContents, ramdiskBytes, rdPartNum); err != nil {
+			return errors.Wrapf(err, "failed to upload ramdisk for file %s", m.destObjectKey)
+		}
+	}
+
+	return nil
+}
+
+func (m *multiUpload) uploadCustomPart(origContents *[]byte, customBytes []byte, partNum int64) error {
+	copy(*origContents, customBytes)
+
+	contentLength := int64(len(*origContents))
 	completedPartCopy, err := m.uploader.s3client.UploadPart(&s3.UploadPartInput{
 		Bucket:        aws.String(m.uploader.bucket),
 		Key:           aws.String(m.destObjectKey),
 		PartNumber:    aws.Int64(partNum),
 		UploadId:      aws.String(m.uploadID),
-		Body:          bytes.NewReader(*m.origContents),
+		Body:          bytes.NewReader(*origContents),
 		ContentLength: aws.Int64(contentLength),
 	})
 	if err != nil {
-		err = errors.Wrapf(err, "Failed to upload ignition for file %s", m.destObjectKey)
-		m.log.Error(err)
 		return err
 	}
 

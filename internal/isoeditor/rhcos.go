@@ -47,6 +47,10 @@ type ClusterProxyInfo struct {
 	NoProxy    string
 }
 
+func (i *ClusterProxyInfo) Empty() bool {
+	return i.HTTPProxy == "" && i.HTTPSProxy == "" && i.NoProxy == ""
+}
+
 type OffsetInfo struct {
 	Key    [8]byte
 	Offset uint64

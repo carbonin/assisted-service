@@ -26,6 +26,7 @@ import (
 	"github.com/openshift/assisted-service/internal/isoeditor"
 	"github.com/openshift/assisted-service/internal/versions"
 	logutil "github.com/openshift/assisted-service/pkg/log"
+	"github.com/openshift/assisted-service/pkg/staticnetworkconfig"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -46,7 +47,7 @@ type API interface {
 	Upload(ctx context.Context, data []byte, objectName string) error
 	UploadStream(ctx context.Context, reader io.Reader, objectName string) error
 	UploadFile(ctx context.Context, filePath, objectName string) error
-	UploadISO(ctx context.Context, ignitionConfig, srcObject, destObjectPrefix string) error
+	UploadISO(ctx context.Context, ignitionConfig string, staticNetworkConfig string, proxyInfo *isoeditor.ClusterProxyInfo, srcObject, destObjectPrefix string) error
 	Download(ctx context.Context, objectName string) (io.ReadCloser, int64, error)
 	DoesObjectExist(ctx context.Context, objectName string) (bool, error)
 	DeleteObject(ctx context.Context, objectName string) (bool, error)
@@ -111,7 +112,8 @@ var ISOFileTypes = map[string]string{
 }
 
 // NewS3Client creates new s3 client using default config along with defined env variables
-func NewS3Client(cfg *Config, logger logrus.FieldLogger, versionsHandler versions.Handler, isoEditorFactory isoeditor.Factory) *S3Client {
+func NewS3Client(cfg *Config, logger logrus.FieldLogger, versionsHandler versions.Handler, isoEditorFactory isoeditor.Factory,
+	staticNetworkConfig staticnetworkconfig.StaticNetworkConfig) *S3Client {
 	awsSession, err := newS3Session(cfg.AwsAccessKeyID, cfg.AwsSecretAccessKey, cfg.Region, cfg.S3EndpointURL)
 	if err != nil {
 		logger.WithError(err).Error("failed to create s3 session")
@@ -134,7 +136,7 @@ func NewS3Client(cfg *Config, logger logrus.FieldLogger, versionsHandler version
 	}
 	publicUploader := s3manager.NewUploader(publicAwsSession)
 
-	isoUploader := NewISOUploader(logger, client, cfg.S3Bucket, cfg.PublicS3Bucket)
+	isoUploader := NewISOUploader(logger, client, cfg.S3Bucket, cfg.PublicS3Bucket, staticNetworkConfig)
 	return &S3Client{client: client, session: awsSession, uploader: uploader,
 		publicClient: publicClient, publicSession: publicAwsSession, publicUploader: publicUploader,
 		cfg: cfg, log: logger, isoUploader: isoUploader, versionsHandler: versionsHandler,
@@ -245,9 +247,9 @@ func (c *S3Client) UploadFileToPublicBucket(ctx context.Context, filePath, objec
 	return c.uploadFile(ctx, filePath, objectName, c.cfg.PublicS3Bucket, c.publicUploader)
 }
 
-func (c *S3Client) UploadISO(ctx context.Context, ignitionConfig, srcObject, destObjectPrefix string) error {
+func (c *S3Client) UploadISO(ctx context.Context, ignitionConfig string, staticNetworkConfig string, proxyInfo *isoeditor.ClusterProxyInfo, srcObject, destObjectPrefix string) error {
 	destObjectName := fmt.Sprintf("%s.iso", destObjectPrefix)
-	return c.isoUploader.UploadISO(ctx, ignitionConfig, srcObject, destObjectName)
+	return c.isoUploader.UploadISO(ctx, ignitionConfig, staticNetworkConfig, proxyInfo, srcObject, destObjectName)
 }
 
 func (c *S3Client) Upload(ctx context.Context, data []byte, objectName string) error {
