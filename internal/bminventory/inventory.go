@@ -12,7 +12,6 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -953,26 +952,28 @@ func (b *bareMetalInventory) createAndUploadNewImage(ctx context.Context, log lo
 		return common.NewApiError(http.StatusInternalServerError, err)
 	}
 
-	objectPrefix := fmt.Sprintf(s3wrapper.DiscoveryImageTemplate, cluster.ID.String())
-
+	var baseISOName string
 	if params.ImageCreateParams.ImageType == models.ImageTypeMinimalIso {
-		if err := b.generateClusterMinimalISO(ctx, log, cluster, ignitionConfig, objectPrefix); err != nil {
-			log.WithError(err).Errorf("Failed to generate minimal ISO for cluster %s", cluster.ID)
-			b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, "Failed to generate minimal ISO", time.Now())
-			return common.NewApiError(http.StatusInternalServerError, err)
-		}
+		baseISOName, err = b.objectHandler.GetMinimalIsoObjectName(cluster.OpenshiftVersion)
 	} else {
-		baseISOName, err := b.objectHandler.GetBaseIsoObject(cluster.OpenshiftVersion)
-		if err != nil {
-			log.WithError(err).Errorf("Failed to get source object name for cluster %s with ocp version %s", cluster.ID, cluster.OpenshiftVersion)
-			return common.NewApiError(http.StatusInternalServerError, err)
-		}
+		baseISOName, err = b.objectHandler.GetBaseIsoObject(cluster.OpenshiftVersion)
+	}
+	if err != nil {
+		log.WithError(err).Errorf("Failed to get source object name for cluster %s with ocp version %s", cluster.ID, cluster.OpenshiftVersion)
+		return common.NewApiError(http.StatusInternalServerError, err)
+	}
 
-		if err := b.objectHandler.UploadISO(ctx, ignitionConfig, baseISOName, objectPrefix); err != nil {
-			log.WithError(err).Errorf("Upload ISO failed for cluster %s", cluster.ID)
-			b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, "Failed to upload image", time.Now())
-			return common.NewApiError(http.StatusInternalServerError, err)
-		}
+	objectPrefix := fmt.Sprintf(s3wrapper.DiscoveryImageTemplate, cluster.ID.String())
+	clusterProxyInfo := isoeditor.ClusterProxyInfo{
+		HTTPProxy:  cluster.HTTPProxy,
+		HTTPSProxy: cluster.HTTPSProxy,
+		NoProxy:    cluster.NoProxy,
+	}
+	err = b.objectHandler.UploadISO(ctx, ignitionConfig, cluster.ImageInfo.StaticNetworkConfig, &clusterProxyInfo, baseISOName, objectPrefix)
+	if err != nil {
+		log.WithError(err).Errorf("Upload ISO failed for cluster %s", cluster.ID)
+		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, "Failed to upload image", time.Now())
+		return common.NewApiError(http.StatusInternalServerError, err)
 	}
 
 	if err := b.updateImageInfoPostUpload(ctx, cluster, clusterProxyHash, params.ImageCreateParams.ImageType, true); err != nil {
@@ -1005,48 +1006,6 @@ func (b *bareMetalInventory) getIgnitionConfigForLogging(cluster *common.Cluster
 
 	msg = fmt.Sprintf("%s (%s)", msg, strings.Join(msgExtras, ", "))
 	return msg
-}
-
-func (b *bareMetalInventory) generateClusterMinimalISO(ctx context.Context, log logrus.FieldLogger,
-	cluster *common.Cluster, ignitionConfig, objectPrefix string) error {
-
-	baseISOName, err := b.objectHandler.GetMinimalIsoObjectName(cluster.OpenshiftVersion)
-	if err != nil {
-		log.WithError(err).Errorf("Failed to get source object name for cluster %s with ocp version %s", cluster.ID, cluster.OpenshiftVersion)
-		return err
-	}
-
-	isoPath, err := s3wrapper.GetFile(ctx, b.objectHandler, baseISOName, b.ISOCacheDir, true)
-	if err != nil {
-		log.WithError(err).Errorf("Failed to download minimal ISO template %s", baseISOName)
-		return err
-	}
-
-	var clusterISOPath string
-	err = b.isoEditorFactory.WithEditor(ctx, isoPath, log, func(editor isoeditor.Editor) error {
-		log.Infof("Creating minimal ISO for cluster %s", cluster.ID)
-		var createError error
-		clusterProxyInfo := isoeditor.ClusterProxyInfo{
-			HTTPProxy:  cluster.HTTPProxy,
-			HTTPSProxy: cluster.HTTPSProxy,
-			NoProxy:    cluster.NoProxy,
-		}
-		clusterISOPath, createError = editor.CreateClusterMinimalISO(ignitionConfig, cluster.ImageInfo.StaticNetworkConfig, &clusterProxyInfo)
-		return createError
-	})
-
-	if err != nil {
-		log.WithError(err).Errorf("Failed to create minimal discovery ISO cluster %s with iso file %s", cluster.ID, isoPath)
-		return err
-	}
-
-	log.Infof("Uploading minimal ISO for cluster %s", cluster.ID)
-	if err := b.objectHandler.UploadFile(ctx, clusterISOPath, fmt.Sprintf("%s.iso", objectPrefix)); err != nil {
-		os.Remove(clusterISOPath)
-		log.WithError(err).Errorf("Failed to upload minimal discovery ISO for cluster %s", cluster.ID)
-		return err
-	}
-	return os.Remove(clusterISOPath)
 }
 
 func getImageName(clusterID strfmt.UUID) string {
