@@ -521,37 +521,15 @@ func createS3Bucket(objectHandler s3wrapper.API, log logrus.FieldLogger) {
 func createStorageClient(deployTarget string, storage string, s3cfg *s3wrapper.Config, fsWorkDir string,
 	log logrus.FieldLogger, versionsHandler versions.Handler, isoEditorFactory isoeditor.Factory) s3wrapper.API {
 	var storageClient s3wrapper.API
-	if storage != "" {
-		switch storage {
-		case "s3":
-			storageClient = s3wrapper.NewS3Client(s3cfg, log, versionsHandler, isoEditorFactory)
-			if storageClient == nil {
-				log.Fatal("failed to create S3 client")
-			}
-		case "filesystem":
-			storageClient = s3wrapper.NewFSClient(fsWorkDir, log, versionsHandler, isoEditorFactory)
-			if storageClient == nil {
-				log.Fatal("failed to create filesystem client")
-			}
-		default:
-			log.Fatalf("unsupported storage client: %s", storage)
+	if storage == "s3" || (storage == "" && deployTarget == deployment_type_k8s) {
+		storageClient = s3wrapper.NewS3Client(s3cfg, log, versionsHandler, isoEditorFactory)
+		if storageClient == nil {
+			log.Fatal("failed to create S3 client")
 		}
+	} else if storage == "filesystem" || (storage == "" && deployTarget == deployment_type_onprem || deployTarget == deployment_type_ocp) {
+		storageClient = s3wrapper.NewFSClient(fsWorkDir, log, versionsHandler, isoEditorFactory)
 	} else {
-		// Retain original logic for backwards capability
-		switch deployTarget {
-		case deployment_type_k8s:
-			storageClient = s3wrapper.NewS3Client(s3cfg, log, versionsHandler, isoEditorFactory)
-			if storageClient == nil {
-				log.Fatal("failed to create S3 client")
-			}
-		case deployment_type_onprem, deployment_type_ocp:
-			storageClient = s3wrapper.NewFSClient(fsWorkDir, log, versionsHandler, isoEditorFactory)
-			if storageClient == nil {
-				log.Fatal("failed to create S3 filesystem client")
-			}
-		default:
-			log.Fatalf("unsupported deploy target %s", deployTarget)
-		}
+		log.Fatalf("unsupported storage configuration: storage type '%s', deploy target '%s'", storage, deployTarget)
 	}
 	return storageClient
 }
