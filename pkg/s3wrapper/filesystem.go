@@ -85,7 +85,26 @@ func (f *FSClient) UploadISO(ctx context.Context, ignitionConfig, srcObject, des
 		return err
 	}
 
-	return isoeditor.EmbedIgnition(baseFile, resultFile, ignitionConfig)
+	temp, err := renamio.TempFile(f.basedir, resultFile)
+	if err != nil {
+		err = errors.Wrap(err, "failed to create tempfile")
+		log.Error(err)
+		return err
+	}
+	defer func() {
+		if err := temp.Cleanup(); err != nil {
+			log.Errorf("Unable to clean up temp file %s", temp.Name())
+		}
+	}()
+
+	err = isoeditor.EmbedIgnition(baseFile, temp.Name(), ignitionConfig)
+	if err != nil {
+		err = errors.Wrap(err, "failed to embed ignition in iso")
+		log.Error(err)
+		return err
+	}
+
+	return temp.CloseAtomicallyReplace()
 }
 
 func (f *FSClient) UploadStream(ctx context.Context, reader io.Reader, objectName string) error {
