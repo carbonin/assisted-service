@@ -109,7 +109,13 @@ func (u *ISOUploader) getISOInfo(baseObjectName string, log logrus.FieldLogger) 
 			found = &u.infoCache[i]
 		}
 	}
+
 	cachePath := filepath.Join("/tmp", *headResp.ETag)
+	if err := os.MkdirAll(cachePath, 0755); err != nil {
+		log.WithError(err).Errorf("Failed to create cache directory %s", cachePath)
+		return nil, nil, nil, err
+	}
+
 	ignCachePath := filepath.Join(cachePath, "ignition")
 	rdCachePath := filepath.Join(cachePath, "ramdisk")
 
@@ -122,7 +128,6 @@ func (u *ISOUploader) getISOInfo(baseObjectName string, log logrus.FieldLogger) 
 		info.etag = *headResp.ETag
 		info.baseObjectSize = *headResp.ContentLength
 
-		var offset, length int64
 		rdInfo, ignInfo, err := u.getISOHeaderInfo(log, baseObjectName, *headResp.ContentLength)
 		if err != nil {
 			err = errors.Wrapf(err, "Failed to get base ISO info for %s from S3", baseObjectName)
@@ -493,7 +498,8 @@ func (m *multiUpload) uploadCustomParts(log logrus.FieldLogger, ignPartNum int64
 		return errors.Wrapf(err, "failed to upload ignition for file %s", m.destObjectKey)
 	}
 
-	if m.isoInfo.minimal && (staticNetworkConfig != "" || !proxyInfo.Empty()) {
+	if m.isoInfo.minimal && (staticNetworkConfig != "" || proxyInfo != nil && !proxyInfo.Empty()) {
+		log.Infof("Adding ramdisk for minimal iso: %s, %v", staticNetworkConfig, *proxyInfo)
 		var filesList []staticnetworkconfig.StaticNetworkConfigData
 		var err error
 		if staticNetworkConfig != "" {

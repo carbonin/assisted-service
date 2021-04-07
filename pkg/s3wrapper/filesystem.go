@@ -16,6 +16,7 @@ import (
 	"github.com/openshift/assisted-service/internal/isoeditor"
 	"github.com/openshift/assisted-service/internal/versions"
 	logutil "github.com/openshift/assisted-service/pkg/log"
+	"github.com/openshift/assisted-service/pkg/staticnetworkconfig"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -25,10 +26,18 @@ type FSClient struct {
 	basedir          string
 	versionsHandler  versions.Handler
 	isoEditorFactory isoeditor.Factory
+	netConfGenerator staticnetworkconfig.StaticNetworkConfig
 }
 
-func NewFSClient(basedir string, logger logrus.FieldLogger, versionsHandler versions.Handler, isoEditorFactory isoeditor.Factory) *FSClient {
-	return &FSClient{log: logger, basedir: basedir, versionsHandler: versionsHandler, isoEditorFactory: isoEditorFactory}
+func NewFSClient(basedir string, logger logrus.FieldLogger, versionsHandler versions.Handler, isoEditorFactory isoeditor.Factory,
+	staticNetworkConfig staticnetworkconfig.StaticNetworkConfig) *FSClient {
+	return &FSClient{
+		log:              logger,
+		basedir:          basedir,
+		versionsHandler:  versionsHandler,
+		isoEditorFactory: isoEditorFactory,
+		netConfGenerator: staticNetworkConfig,
+	}
 }
 
 func (f *FSClient) IsAwsS3() bool {
@@ -75,7 +84,7 @@ func (f *FSClient) UploadFileToPublicBucket(ctx context.Context, filePath, objec
 	return f.UploadFile(ctx, filePath, objectName)
 }
 
-func (f *FSClient) UploadISO(ctx context.Context, ignitionConfig, srcObject, destObjectPrefix string) error {
+func (f *FSClient) UploadISO(ctx context.Context, ignitionConfig string, staticNetworkConfig string, proxyInfo *isoeditor.ClusterProxyInfo, srcObject, destObjectPrefix string) error {
 	log := logutil.FromContext(ctx, f.log)
 	resultFile := filepath.Join(f.basedir, fmt.Sprintf("%s.iso", destObjectPrefix))
 	baseFile := filepath.Join(f.basedir, srcObject)
@@ -85,7 +94,7 @@ func (f *FSClient) UploadISO(ctx context.Context, ignitionConfig, srcObject, des
 		return err
 	}
 
-	temp, err := renamio.TempFile(f.basedir, resultFile)
+	temp, err := renameio.TempFile(f.basedir, resultFile)
 	if err != nil {
 		err = errors.Wrap(err, "failed to create tempfile")
 		log.Error(err)
@@ -97,7 +106,17 @@ func (f *FSClient) UploadISO(ctx context.Context, ignitionConfig, srcObject, des
 		}
 	}()
 
-	err = isoeditor.EmbedIgnition(baseFile, temp.Name(), ignitionConfig)
+	var filesList []staticnetworkconfig.StaticNetworkConfigData
+	if staticNetworkConfig != "" {
+		filesList, err = f.netConfGenerator.GenerateStaticNetworkConfigData(staticNetworkConfig)
+		if err != nil {
+			err = errors.Wrap(err, "failed to generate static network config files")
+			log.Error(err)
+			return err
+		}
+	}
+
+	err = isoeditor.CustomizeISO(baseFile, temp.Name(), ignitionConfig, filesList, proxyInfo)
 	if err != nil {
 		err = errors.Wrap(err, "failed to embed ignition in iso")
 		log.Error(err)

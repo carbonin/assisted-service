@@ -37,7 +37,7 @@ const (
 	ignitionHeaderKey     = "coreiso+"
 	ramdiskHeaderKey      = "ramdisk+"
 	isoSystemAreaSize     = 32768
-	ignitionHeaderSize    = 24
+	isoHeaderSize         = 48
 	headerLength          = int64(32768) // first 32KB in ISO
 )
 
@@ -583,8 +583,8 @@ func ParseOffsetInfo(headerBytes []byte) (*OffsetInfo, error) {
 	return offsetInfo, nil
 }
 
-func EmbedIgnition(inputISOPath, outputISOPath, ignitionConfig string) error {
-	coreosIgnitionHeader := make([]byte, ignitionHeaderSize)
+func CustomizeISO(inputISOPath, outputISOPath, ignitionConfig string, netFiles []staticnetworkconfig.StaticNetworkConfigData, proxyInfo *ClusterProxyInfo) error {
+	headerBytes := make([]byte, isoHeaderSize)
 
 	inputISO, err := os.Open(inputISOPath)
 	if err != nil {
@@ -592,22 +592,17 @@ func EmbedIgnition(inputISOPath, outputISOPath, ignitionConfig string) error {
 	}
 	defer inputISO.Close()
 
-	// Reading the last 24 bytes at the end of the system area)
-	if _, err = inputISO.ReadAt(coreosIgnitionHeader, isoSystemAreaSize-ignitionHeaderSize); err != nil {
-		return err
-	}
-	ignitionOffsetInfo, err := GetIgnitionArea(coreosIgnitionHeader)
-	if err != nil {
+	// Reading the last 48 bytes at the end of the system area)
+	if _, err = inputISO.ReadAt(headerBytes, isoSystemAreaSize-isoHeaderSize); err != nil {
 		return err
 	}
 
-	cpio, err := IgnitionImageArchive(ignitionConfig)
+	// Ignore errors here as we could have a full-iso without this metadata
+	// TODO add a log here
+	rdOffsetInfo, _ := GetRamDiskArea(headerBytes[0:24])
+	ignOffsetInfo, err := GetIgnitionArea(headerBytes[24:48])
 	if err != nil {
 		return err
-	}
-
-	if uint64(len(cpio)) > ignitionOffsetInfo.Length {
-		return errors.Errorf("Compressed Ignition config is too large: %v > %v", len(cpio), int(ignitionOffsetInfo.Length))
 	}
 
 	resultISO, err := os.Create(outputISOPath)
@@ -620,10 +615,37 @@ func EmbedIgnition(inputISOPath, outputISOPath, ignitionConfig string) error {
 		return err
 	}
 
+	ignData, err := IgnitionImageArchive(ignitionConfig)
+	if err != nil {
+		return err
+	}
+	if err := writeCustomizationInfo(ignData, ignOffsetInfo, resultISO); err != nil {
+		return err
+	}
+
+	// If we're a minimal iso and have something to embed in the ramdisk
+	if rdOffsetInfo != nil && (netFiles != nil && len(netFiles) > 0 || proxyInfo != nil && !proxyInfo.Empty()) {
+		rdData, err := RamDiskImageArchive(netFiles, proxyInfo)
+		if err != nil {
+			return err
+		}
+		if err := writeCustomizationInfo(rdData, rdOffsetInfo, resultISO); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeCustomizationInfo(data []byte, info *OffsetInfo, w io.WriterAt) error {
+	if uint64(len(data)) > info.Length {
+		return errors.Errorf("data is too large for reserved area: %v > %v", len(data), int(info.Length))
+	}
+
 	// clear out the embed area
-	embedArea := make([]byte, ignitionOffsetInfo.Length)
-	copy(embedArea, cpio)
-	if _, err = resultISO.WriteAt(embedArea, int64(ignitionOffsetInfo.Offset)); err != nil {
+	embedArea := make([]byte, info.Length)
+	copy(embedArea, data)
+	if _, err := w.WriteAt(embedArea, int64(info.Offset)); err != nil {
 		return err
 	}
 
