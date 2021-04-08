@@ -99,7 +99,7 @@ func (a *assistedServiceISOApi) CreateISOAndUploadToS3(ctx context.Context, para
 	}
 	destISOName := fmt.Sprintf("%s%s", imgexpirer.AssistedServiceLiveISOPrefix, username)
 
-	if err = a.objectHandler.UploadISO(ctx, ignitionConfig, srcISOName, destISOName); err != nil {
+	if err = a.objectHandler.UploadISO(ctx, ignitionConfig, "", nil, srcISOName, destISOName); err != nil {
 		log.WithError(err).Errorf("Failed to generate Assisted Service ISO")
 		return common.NewApiError(http.StatusInternalServerError, err)
 	}
