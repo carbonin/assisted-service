@@ -112,7 +112,8 @@ var ISOFileTypes = map[string]string{
 }
 
 // NewS3Client creates new s3 client using default config along with defined env variables
-func NewS3Client(cfg *Config, logger logrus.FieldLogger, versionsHandler versions.Handler, isoEditorFactory isoeditor.Factory) *S3Client {
+func NewS3Client(cfg *Config, logger logrus.FieldLogger, versionsHandler versions.Handler, isoEditorFactory isoeditor.Factory,
+	staticNetworkConfig staticnetworkconfig.StaticNetworkConfig) *S3Client {
 	awsSession, err := newS3Session(cfg.AwsAccessKeyID, cfg.AwsSecretAccessKey, cfg.Region, cfg.S3EndpointURL)
 	if err != nil {
 		logger.WithError(err).Error("failed to create s3 session")
@@ -135,7 +136,7 @@ func NewS3Client(cfg *Config, logger logrus.FieldLogger, versionsHandler version
 	}
 	publicUploader := s3manager.NewUploader(publicAwsSession)
 
-	isoUploader := NewISOUploader(logger, client, cfg.S3Bucket, cfg.PublicS3Bucket)
+	isoUploader := NewISOUploader(logger, client, cfg.S3Bucket, cfg.PublicS3Bucket, staticNetworkConfig)
 	return &S3Client{client: client, session: awsSession, uploader: uploader,
 		publicClient: publicClient, publicSession: publicAwsSession, publicUploader: publicUploader,
 		cfg: cfg, log: logger, isoUploader: isoUploader, versionsHandler: versionsHandler,
@@ -246,9 +247,9 @@ func (c *S3Client) UploadFileToPublicBucket(ctx context.Context, filePath, objec
 	return c.uploadFile(ctx, filePath, objectName, c.cfg.PublicS3Bucket, c.publicUploader)
 }
 
-func (c *S3Client) UploadISO(ctx context.Context, ignitionConfig, srcObject, destObjectPrefix string) error {
+func (c *S3Client) UploadISO(ctx context.Context, ignitionConfig string, staticNetworkConfig string, proxyInfo *isoeditor.ClusterProxyInfo, srcObject, destObjectPrefix string) error {
 	destObjectName := fmt.Sprintf("%s.iso", destObjectPrefix)
-	return c.isoUploader.UploadISO(ctx, ignitionConfig, srcObject, destObjectName)
+	return c.isoUploader.UploadISO(ctx, ignitionConfig, staticNetworkConfig, proxyInfo, srcObject, destObjectName)
 }
 
 func (c *S3Client) Upload(ctx context.Context, data []byte, objectName string) error {

@@ -549,7 +549,7 @@ func createStorageClient(deployTarget string, storage string, s3cfg *s3wrapper.C
 	if storage != "" {
 		switch storage {
 		case storage_s3:
-			storageClient = s3wrapper.NewS3Client(s3cfg, log, versionsHandler, isoEditorFactory)
+			storageClient = s3wrapper.NewS3Client(s3cfg, log, versionsHandler, isoEditorFactory, staticNetworkConfig)
 			if storageClient == nil {
 				log.Fatal("failed to create S3 client")
 			}
@@ -565,7 +565,7 @@ func createStorageClient(deployTarget string, storage string, s3cfg *s3wrapper.C
 		// Retain original logic for backwards capability
 		switch deployTarget {
 		case deployment_type_k8s:
-			storageClient = s3wrapper.NewS3Client(s3cfg, log, versionsHandler, isoEditorFactory)
+			storageClient = s3wrapper.NewS3Client(s3cfg, log, versionsHandler, isoEditorFactory, staticNetworkConfig)
 			if storageClient == nil {
 				log.Fatal("failed to create S3 client")
 			}

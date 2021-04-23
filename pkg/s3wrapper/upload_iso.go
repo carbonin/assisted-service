@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/openshift/assisted-service/internal/isoeditor"
 	logutil "github.com/openshift/assisted-service/pkg/log"
+	"github.com/openshift/assisted-service/pkg/staticnetworkconfig"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -22,62 +24,67 @@ const minimumPartSizeBytes = 5 * 1024 * 1024    // 5MB
 const copyPartChunkSizeBytes = 64 * 1024 * 1024 // 64MB
 
 type ISOUploaderAPI interface {
-	UploadISO(ctx context.Context, ignitionConfig, srcObjectName, destObjectName string) error
+	UploadISO(ctx context.Context, ignitionConfig string, staticNetworkConfig string, proxyInfo *isoeditor.ClusterProxyInfo, srcObjectName string, destObjectName string) error
 }
 
 var _ ISOUploaderAPI = &ISOUploader{}
 
 type ISOUploader struct {
-	log          logrus.FieldLogger
-	s3client     s3iface.S3API
-	bucket       string
-	publicBucket string
-	infoCache    []isoInfo
+	log              logrus.FieldLogger
+	s3client         s3iface.S3API
+	bucket           string
+	publicBucket     string
+	infoCache        []isoInfo
+	netConfGenerator staticnetworkconfig.StaticNetworkConfig
 }
 
 type isoInfo struct {
-	etag            string
-	baseObjectSize  int64
-	areaOffsetBytes int64
-	areaLengthBytes int64
+	etag           string
+	baseObjectSize int64
+	ignOffsetBytes int64
+	ignLengthBytes int64
+	minimal        bool
 }
 
-func NewISOUploader(logger logrus.FieldLogger, s3Client s3iface.S3API, bucket, publicBucket string) *ISOUploader {
-	return &ISOUploader{log: logger, s3client: s3Client, bucket: bucket, publicBucket: publicBucket}
+func NewISOUploader(logger logrus.FieldLogger, s3Client s3iface.S3API, bucket, publicBucket string, staticNetworkConfig staticnetworkconfig.StaticNetworkConfig) *ISOUploader {
+	return &ISOUploader{log: logger, s3client: s3Client, bucket: bucket, publicBucket: publicBucket, netConfGenerator: staticNetworkConfig}
 }
 
-func (u *ISOUploader) UploadISO(ctx context.Context, ignitionConfig, srcObjectName, destObjectName string) error {
+func (u *ISOUploader) UploadISO(ctx context.Context, ignitionConfig string, staticNetworkConfig string, proxyInfo *isoeditor.ClusterProxyInfo, srcObjectName string, destObjectName string) error {
 	log := logutil.FromContext(ctx, u.log)
 	log.Debugf("Started upload of ISO %s", destObjectName)
 
-	baseISOInfo, origContents, err := u.getISOInfo(srcObjectName, log)
+	baseISOInfo, origIgnContents, err := u.getISOInfo(srcObjectName, log)
 	if err != nil {
 		err = errors.Wrapf(err, "Failed to fetch base ISO information")
 		log.Error(err)
 		return err
 	}
 
-	upload := multiUpload{
-		ctx:             ctx,
-		log:             log,
-		uploader:        u,
-		isoInfo:         baseISOInfo,
-		origContents:    origContents,
-		sourceObjectKey: srcObjectName,
-		destObjectKey:   destObjectName,
-	}
-	err = upload.Upload(ignitionConfig)
-	if err != nil {
-		err = errors.Wrapf(err, "Failed to create ISO %s", destObjectName)
-		log.Error(err)
-		return err
+	if baseISOInfo.minimal {
+	} else {
+		upload := multiUpload{
+			ctx:             ctx,
+			log:             log,
+			uploader:        u,
+			isoInfo:         baseISOInfo,
+			origIgnContents: origIgnContents,
+			sourceObjectKey: srcObjectName,
+			destObjectKey:   destObjectName,
+		}
+		err = upload.Upload(ignitionConfig, staticNetworkConfig, proxyInfo)
+		if err != nil {
+			err = errors.Wrapf(err, "Failed to create ISO %s", destObjectName)
+			log.Error(err)
+			return err
+		}
 	}
 	return nil
 }
 
 func (u *ISOUploader) getISOInfo(baseObjectName string, log logrus.FieldLogger) (*isoInfo, *[]byte, error) {
 	var info isoInfo
-	var origContents []byte
+	var ignContents *[]byte
 
 	// Get ETag from S3
 	headResp, err := u.s3client.HeadObject(&s3.HeadObjectInput{
@@ -96,93 +103,140 @@ func (u *ISOUploader) getISOInfo(baseObjectName string, log logrus.FieldLogger) 
 			found = &u.infoCache[i]
 		}
 	}
+
 	cachePath := filepath.Join("/tmp", *headResp.ETag)
+	if err := os.MkdirAll(cachePath, 0755); err != nil {
+		log.WithError(err).Errorf("Failed to create cache directory %s", cachePath)
+		return nil, nil, err
+	}
+
+	ignCachePath := filepath.Join(cachePath, "ignition")
 
 	if found == nil {
 		// Add to cache if not found
 		log.Infof("Did not find ISO info for %s in cache, will add", baseObjectName)
-		var offset, length int64
-		offset, length, err = u.getISOHeaderInfo(log, baseObjectName, *headResp.ContentLength)
+		info.etag = *headResp.ETag
+		info.baseObjectSize = *headResp.ContentLength
+
+		rdInfo, ignInfo, err := u.getISOHeaderInfo(log, baseObjectName, *headResp.ContentLength)
 		if err != nil {
 			err = errors.Wrapf(err, "Failed to get base ISO info for %s from S3", baseObjectName)
 			log.Error(err)
 			return nil, nil, err
 		}
-		info.etag = *headResp.ETag
-		info.baseObjectSize = *headResp.ContentLength
-		info.areaLengthBytes = length
-		info.areaOffsetBytes = offset
 
-		var getRest *s3.GetObjectOutput
-		getRest, err = u.s3client.GetObject(&s3.GetObjectInput{
-			Bucket: aws.String(u.publicBucket),
-			Key:    aws.String(baseObjectName),
-			Range:  aws.String(fmt.Sprintf("bytes=%d-%d", offset, offset+minimumPartSizeBytes-1)),
-		})
-		if err != nil {
-			err = errors.Wrapf(err, "Failed to fetch embedded area of live ISO %s", baseObjectName)
-			log.Error(err)
-			return nil, nil, err
-		}
-		origContents, err = ioutil.ReadAll(getRest.Body)
-		if err != nil {
-			err = errors.Wrapf(err, "Failed to fetch body from embedded area of live ISO %s", baseObjectName)
-			log.Error(err)
-			return nil, nil, err
-		}
+		info.ignLengthBytes = int64(ignInfo.Length)
+		info.ignOffsetBytes = int64(ignInfo.Offset)
 
-		err = ioutil.WriteFile(cachePath, origContents, 0600)
-		if err != nil {
-			// If we fail here, continue without adding to cache rather than failing the entire operation
-			log.WithError(err).Errorf("Failed to cache embedded area to file %s", cachePath)
-		} else {
+		if rdInfo != nil {
+			info.minimal = true
 			u.infoCache = append(u.infoCache, info)
+		} else {
+			// Only cache the part for full iso as we'll download the entire file for the minimal case
+			ignContents, err = u.cacheOriginalPart(baseObjectName, info.ignOffsetBytes)
+			if err != nil {
+				log.Error(err)
+				return nil, nil, err
+			}
+
+			if err := ioutil.WriteFile(ignCachePath, *ignContents, 0600); err != nil {
+				log.WithError(err).Errorf("failed to cache ignition embedded area to file %s", ignCachePath)
+			} else {
+				u.infoCache = append(u.infoCache, info)
+			}
 		}
 	} else {
 		// Return from cache
 		log.Debugf("Found ISO info for %s in cache", baseObjectName)
-		origContents, err = ioutil.ReadFile(cachePath)
-		if err != nil {
-			err = errors.Wrapf(err, "Failed to fetch embedded area of live ISO %s from disk cache", baseObjectName)
-			log.Error(err)
-			return nil, nil, err
-		}
 		info = *found
+
+		if !info.minimal {
+			ignBytes, err := ioutil.ReadFile(ignCachePath)
+			if err != nil {
+				err = errors.Wrapf(err, "Failed to fetch ignition embedded area of live ISO %s from disk cache", baseObjectName)
+				log.Error(err)
+				return nil, nil, err
+			}
+			ignContents = &ignBytes
+		}
 	}
-	return &info, &origContents, nil
+	return &info, ignContents, nil
 }
 
-func (u *ISOUploader) getISOHeaderInfo(log logrus.FieldLogger, baseObjectName string, baseObjectSize int64) (int64, int64, error) {
-	// Download header of the live ISO (last 24 bytes of the first 32KB)
+// this assumes the original part starts > minimumPartSizeBytes from the start of the object
+// and that the part itself is < minimumPartSizeBytes in length
+func (u *ISOUploader) cacheOriginalPart(baseObjectName string, offset int64) (*[]byte, error) {
+	var getRest *s3.GetObjectOutput
+	var err error
+	getRest, err = u.s3client.GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(u.publicBucket),
+		Key:    aws.String(baseObjectName),
+		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", offset, offset+minimumPartSizeBytes-1)),
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to fetch embedded area of live ISO %s", baseObjectName)
+	}
+
+	origContents, err := ioutil.ReadAll(getRest.Body)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read body from embedded area of live ISO %s", baseObjectName)
+	}
+
+	return &origContents, nil
+}
+
+func (u *ISOUploader) getISOHeaderInfo(log logrus.FieldLogger, baseObjectName string, baseObjectSize int64) (*isoeditor.OffsetInfo, *isoeditor.OffsetInfo, error) {
+	// Download header of the live ISO (last 48 bytes of the first 32KB)
 	getResp, err := u.s3client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(u.publicBucket),
 		Key:    aws.String(baseObjectName),
-		Range:  aws.String("bytes=32744-32767"),
+		Range:  aws.String("bytes=32720-32767"),
 	})
 	if err != nil {
 		log.WithError(err).Errorf("Failed to get header of object %s from bucket %s", baseObjectName, u.publicBucket)
-		return 0, 0, err
+		return nil, nil, err
 	}
 	headerString, err := ioutil.ReadAll(getResp.Body)
 	if err != nil {
 		log.WithError(err).Errorf("Failed to read header of object %s from bucket %s", baseObjectName, u.publicBucket)
-		return 0, 0, err
+		return nil, nil, err
 	}
 
-	ignOffsetInfo, err := isoeditor.GetIgnitionArea(headerString)
+	ramdiskHeader := headerString[0:24]
+	rdOffsetInfo, err := isoeditor.GetRamDiskArea(ramdiskHeader)
 	if err != nil {
-		return 0, 0, err
+		log.WithError(err).Warnf("Failed to read ramdisk embed info from %s, assuming full iso", baseObjectName)
+		rdOffsetInfo = nil
+	} else {
+		if err := validateEmbedArea(rdOffsetInfo, baseObjectSize); err != nil {
+			return nil, nil, err
+		}
 	}
 
+	ignitionHeader := headerString[24:48]
+	ignOffsetInfo, err := isoeditor.GetIgnitionArea(ignitionHeader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := validateEmbedArea(ignOffsetInfo, baseObjectSize); err != nil {
+		return nil, nil, err
+	}
+
+	return rdOffsetInfo, ignOffsetInfo, nil
+}
+
+func validateEmbedArea(info *isoeditor.OffsetInfo, baseObjectSize int64) error {
 	// For now we assume that the embedded area is less than 5MB, which is the minimum S3 part size
-	if ignOffsetInfo.Length > minimumPartSizeBytes {
-		return 0, 0, errors.New("ISO embedded area is larger than what is currently supported")
+	if info.Length > minimumPartSizeBytes {
+		return errors.New("ISO embedded area is larger than what is currently supported")
 	}
 
-	if ignOffsetInfo.Offset+minimumPartSizeBytes > uint64(baseObjectSize) {
-		return 0, 0, errors.New("Embedded area is too close to the end of the file, which is currently not handled")
+	if info.Offset+minimumPartSizeBytes > uint64(baseObjectSize) {
+		return errors.New("Embedded area is too close to the end of the file, which is currently not handled")
 	}
-	return int64(ignOffsetInfo.Offset), int64(ignOffsetInfo.Length), nil
+
+	return nil
 }
 
 type multiUpload struct {
