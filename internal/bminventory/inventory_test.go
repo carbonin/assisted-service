@@ -614,7 +614,7 @@ var _ = Describe("GenerateClusterISO", func() {
 
 		stubWithEditor := func(factory *isoeditor.MockFactory, editor isoeditor.Editor) {
 			factory.EXPECT().WithEditor(ctx, gomock.Any(), gomock.Any(), gomock.Any()).
-				DoAndReturn(func(ctx context.Context, isoPath string, openshiftVersion string, log logrus.FieldLogger, proc isoeditor.EditFunc) error {
+				DoAndReturn(func(ctx context.Context, isoPath string, log logrus.FieldLogger, proc isoeditor.EditFunc) error {
 					return proc(editor)
 				})
 		}
