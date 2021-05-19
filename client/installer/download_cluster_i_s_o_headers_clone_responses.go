@@ -20,13 +20,14 @@ import (
 // DownloadClusterISOHeadersCloneReader is a Reader for the DownloadClusterISOHeadersClone structure.
 type DownloadClusterISOHeadersCloneReader struct {
 	formats strfmt.Registry
+	writer  io.Writer
 }
 
 // ReadResponse reads a server response into the received o.
 func (o *DownloadClusterISOHeadersCloneReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
 	case 200:
-		result := NewDownloadClusterISOHeadersCloneOK()
+		result := NewDownloadClusterISOHeadersCloneOK(o.writer)
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -80,8 +81,10 @@ func (o *DownloadClusterISOHeadersCloneReader) ReadResponse(response runtime.Cli
 }
 
 // NewDownloadClusterISOHeadersCloneOK creates a DownloadClusterISOHeadersCloneOK with default headers values
-func NewDownloadClusterISOHeadersCloneOK() *DownloadClusterISOHeadersCloneOK {
-	return &DownloadClusterISOHeadersCloneOK{}
+func NewDownloadClusterISOHeadersCloneOK(writer io.Writer) *DownloadClusterISOHeadersCloneOK {
+	return &DownloadClusterISOHeadersCloneOK{
+		Payload: writer,
+	}
 }
 
 /*DownloadClusterISOHeadersCloneOK handles this case with default header values.
@@ -92,10 +95,19 @@ type DownloadClusterISOHeadersCloneOK struct {
 	/*Size of the ISO in bytes
 	 */
 	ContentLength int64
+	/*Type of content returned by the GET endpoint
+	 */
+	ContentType string
+
+	Payload io.Writer
 }
 
 func (o *DownloadClusterISOHeadersCloneOK) Error() string {
-	return fmt.Sprintf("[HEAD /clusters/{cluster_id}/downloads/image.iso][%d] downloadClusterISOHeadersCloneOK ", 200)
+	return fmt.Sprintf("[HEAD /clusters/{cluster_id}/downloads/image.iso][%d] downloadClusterISOHeadersCloneOK  %+v", 200, o.Payload)
+}
+
+func (o *DownloadClusterISOHeadersCloneOK) GetPayload() io.Writer {
+	return o.Payload
 }
 
 func (o *DownloadClusterISOHeadersCloneOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -106,6 +118,14 @@ func (o *DownloadClusterISOHeadersCloneOK) readResponse(response runtime.ClientR
 		return errors.InvalidType("Content-Length", "header", "int64", response.GetHeader("Content-Length"))
 	}
 	o.ContentLength = contentLength
+
+	// response header Content-Type
+	o.ContentType = response.GetHeader("Content-Type")
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

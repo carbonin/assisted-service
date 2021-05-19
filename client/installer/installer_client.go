@@ -44,10 +44,10 @@ type API interface {
 	DownloadClusterISOClone(ctx context.Context, params *DownloadClusterISOCloneParams, writer io.Writer) (*DownloadClusterISOCloneOK, error)
 	/*
 	   DownloadClusterISOHeaders Downloads the OpenShift per-cluster Discovery ISO Headers only.*/
-	DownloadClusterISOHeaders(ctx context.Context, params *DownloadClusterISOHeadersParams) (*DownloadClusterISOHeadersOK, error)
+	DownloadClusterISOHeaders(ctx context.Context, params *DownloadClusterISOHeadersParams, writer io.Writer) (*DownloadClusterISOHeadersOK, error)
 	/*
 	   DownloadClusterISOHeadersClone Downloads the OpenShift per-cluster Discovery ISO Headers only.*/
-	DownloadClusterISOHeadersClone(ctx context.Context, params *DownloadClusterISOHeadersCloneParams) (*DownloadClusterISOHeadersCloneOK, error)
+	DownloadClusterISOHeadersClone(ctx context.Context, params *DownloadClusterISOHeadersCloneParams, writer io.Writer) (*DownloadClusterISOHeadersCloneOK, error)
 	/*
 	   DownloadClusterKubeconfig Downloads the kubeconfig file for this cluster.*/
 	DownloadClusterKubeconfig(ctx context.Context, params *DownloadClusterKubeconfigParams, writer io.Writer) (*DownloadClusterKubeconfigOK, error)
@@ -402,17 +402,17 @@ func (a *Client) DownloadClusterISOClone(ctx context.Context, params *DownloadCl
 /*
 DownloadClusterISOHeaders Downloads the OpenShift per-cluster Discovery ISO Headers only.
 */
-func (a *Client) DownloadClusterISOHeaders(ctx context.Context, params *DownloadClusterISOHeadersParams) (*DownloadClusterISOHeadersOK, error) {
+func (a *Client) DownloadClusterISOHeaders(ctx context.Context, params *DownloadClusterISOHeadersParams, writer io.Writer) (*DownloadClusterISOHeadersOK, error) {
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "DownloadClusterISOHeaders",
 		Method:             "HEAD",
 		PathPattern:        "/clusters/{cluster_id}/downloads/image",
-		ProducesMediaTypes: []string{"application/json"},
+		ProducesMediaTypes: []string{"application/octet-stream"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http", "https"},
 		Params:             params,
-		Reader:             &DownloadClusterISOHeadersReader{formats: a.formats},
+		Reader:             &DownloadClusterISOHeadersReader{formats: a.formats, writer: writer},
 		AuthInfo:           a.authInfo,
 		Context:            ctx,
 		Client:             params.HTTPClient,
@@ -427,17 +427,17 @@ func (a *Client) DownloadClusterISOHeaders(ctx context.Context, params *Download
 /*
 DownloadClusterISOHeadersClone Downloads the OpenShift per-cluster Discovery ISO Headers only.
 */
-func (a *Client) DownloadClusterISOHeadersClone(ctx context.Context, params *DownloadClusterISOHeadersCloneParams) (*DownloadClusterISOHeadersCloneOK, error) {
+func (a *Client) DownloadClusterISOHeadersClone(ctx context.Context, params *DownloadClusterISOHeadersCloneParams, writer io.Writer) (*DownloadClusterISOHeadersCloneOK, error) {
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "DownloadClusterISOHeadersClone",
 		Method:             "HEAD",
 		PathPattern:        "/clusters/{cluster_id}/downloads/image.iso",
-		ProducesMediaTypes: []string{"application/json"},
+		ProducesMediaTypes: []string{"application/octet-stream"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http", "https"},
 		Params:             params,
-		Reader:             &DownloadClusterISOHeadersCloneReader{formats: a.formats},
+		Reader:             &DownloadClusterISOHeadersCloneReader{formats: a.formats, writer: writer},
 		AuthInfo:           a.authInfo,
 		Context:            ctx,
 		Client:             params.HTTPClient,

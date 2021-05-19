@@ -89,25 +89,25 @@ func (f fakeInventory) DownloadClusterISO(ctx context.Context, params installer.
 }
 
 func (f fakeInventory) DownloadClusterISOHeaders(ctx context.Context, params installer.DownloadClusterISOHeadersParams) middleware.Responder {
-	_, err := ioutil.TempFile("/tmp", "test.file")
+	file, err := ioutil.TempFile("/tmp", "test.file")
 	if err != nil {
 		return installer.NewDownloadClusterISOHeadersInternalServerError().WithPayload(
 			common.GenerateError(http.StatusInternalServerError, err))
 	}
 	return filemiddleware.NewResponder(
-		installer.NewDownloadClusterISOHeadersOK(),
+		installer.NewDownloadClusterISOHeadersOK().WithPayload(io.ReadCloser(file)),
 		"test",
 		0)
 }
 
 func (f fakeInventory) DownloadClusterISOHeadersClone(ctx context.Context, params installer.DownloadClusterISOHeadersCloneParams) middleware.Responder {
-	_, err := ioutil.TempFile("/tmp", "test.file")
+	file, err := ioutil.TempFile("/tmp", "test.file")
 	if err != nil {
 		return installer.NewDownloadClusterISOHeadersInternalServerError().WithPayload(
 			common.GenerateError(http.StatusInternalServerError, err))
 	}
 	return filemiddleware.NewResponder(
-		installer.NewDownloadClusterISOHeadersOK(),
+		installer.NewDownloadClusterISOHeadersOK().WithPayload(io.ReadCloser(file)),
 		"test",
 		0)
 }

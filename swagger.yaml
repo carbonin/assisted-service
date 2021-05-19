@@ -304,6 +304,8 @@ paths:
         - userAuth: [admin, read-only-admin, user]
         - urlAuth: []
       operationId: DownloadClusterISOHeadersClone
+      produces:
+        - application/octet-stream
       parameters:
         - in: path
           name: cluster_id
@@ -314,10 +316,16 @@ paths:
       responses:
         "200":
           description: Success.
+          schema:
+            type: string
+            format: binary
           headers:
             Content-Length:
               type: integer
               description: Size of the ISO in bytes
+            Content-Type:
+              type: string
+              description: Type of content returned by the GET endpoint
         "400":
           description: Error.
           schema:
@@ -507,6 +515,8 @@ paths:
         - userAuth: [admin, read-only-admin, user]
         - urlAuth: []
       operationId: DownloadClusterISOHeaders
+      produces:
+        - application/octet-stream
       parameters:
         - in: path
           name: cluster_id
@@ -517,10 +527,16 @@ paths:
       responses:
         "200":
           description: Success.
+          schema:
+            type: string
+            format: binary
           headers:
             Content-Length:
               type: integer
               description: Size of the ISO in bytes
+            Content-Type:
+              type: string
+              description: Type of content returned by the GET endpoint
         "400":
           description: Error.
           schema:

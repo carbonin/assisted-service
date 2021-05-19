@@ -1678,6 +1678,9 @@ func init() {
           }
         ],
         "description": "Downloads the OpenShift per-cluster Discovery ISO Headers only.",
+        "produces": [
+          "application/octet-stream"
+        ],
         "tags": [
           "installer"
         ],
@@ -1695,10 +1698,18 @@ func init() {
         "responses": {
           "200": {
             "description": "Success.",
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            },
             "headers": {
               "Content-Length": {
                 "type": "integer",
                 "description": "Size of the ISO in bytes"
+              },
+              "Content-Type": {
+                "type": "string",
+                "description": "Type of content returned by the GET endpoint"
               }
             }
           },
@@ -1839,6 +1850,9 @@ func init() {
           }
         ],
         "description": "Downloads the OpenShift per-cluster Discovery ISO Headers only.",
+        "produces": [
+          "application/octet-stream"
+        ],
         "tags": [
           "installer"
         ],
@@ -1856,10 +1870,18 @@ func init() {
         "responses": {
           "200": {
             "description": "Success.",
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            },
             "headers": {
               "Content-Length": {
                 "type": "integer",
                 "description": "Size of the ISO in bytes"
+              },
+              "Content-Type": {
+                "type": "string",
+                "description": "Type of content returned by the GET endpoint"
               }
             }
           },
@@ -9446,6 +9468,9 @@ func init() {
           }
         ],
         "description": "Downloads the OpenShift per-cluster Discovery ISO Headers only.",
+        "produces": [
+          "application/octet-stream"
+        ],
         "tags": [
           "installer"
         ],
@@ -9463,10 +9488,18 @@ func init() {
         "responses": {
           "200": {
             "description": "Success.",
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            },
             "headers": {
               "Content-Length": {
                 "type": "integer",
                 "description": "Size of the ISO in bytes"
+              },
+              "Content-Type": {
+                "type": "string",
+                "description": "Type of content returned by the GET endpoint"
               }
             }
           },
@@ -9607,6 +9640,9 @@ func init() {
           }
         ],
         "description": "Downloads the OpenShift per-cluster Discovery ISO Headers only.",
+        "produces": [
+          "application/octet-stream"
+        ],
         "tags": [
           "installer"
         ],
@@ -9624,10 +9660,18 @@ func init() {
         "responses": {
           "200": {
             "description": "Success.",
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            },
             "headers": {
               "Content-Length": {
                 "type": "integer",
                 "description": "Size of the ISO in bytes"
+              },
+              "Content-Type": {
+                "type": "string",
+                "description": "Type of content returned by the GET endpoint"
               }
             }
           },

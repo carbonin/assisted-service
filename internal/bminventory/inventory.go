@@ -783,7 +783,11 @@ func (b *bareMetalInventory) DownloadClusterISOHeaders(ctx context.Context, para
 		log.WithError(err).Errorf("Failed to get ISO size for cluster %s", cluster.ID.String())
 		return common.NewApiError(http.StatusBadRequest, err)
 	}
-	return installer.NewDownloadClusterISOHeadersOK().WithContentLength(imgSize)
+	return &installer.DownloadClusterISOHeadersOK{
+		ContentLength: imgSize,
+		ContentType:   "application/octet-stream",
+		Payload:       ioutil.NopCloser(strings.NewReader("")),
+	}
 }
 
 func (b *bareMetalInventory) updateImageInfoPostUpload(ctx context.Context, cluster *common.Cluster, clusterProxyHash string, imageType models.ImageType, generated bool) error {

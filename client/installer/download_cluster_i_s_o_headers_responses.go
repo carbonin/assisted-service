@@ -20,13 +20,14 @@ import (
 // DownloadClusterISOHeadersReader is a Reader for the DownloadClusterISOHeaders structure.
 type DownloadClusterISOHeadersReader struct {
 	formats strfmt.Registry
+	writer  io.Writer
 }
 
 // ReadResponse reads a server response into the received o.
 func (o *DownloadClusterISOHeadersReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
 	case 200:
-		result := NewDownloadClusterISOHeadersOK()
+		result := NewDownloadClusterISOHeadersOK(o.writer)
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -80,8 +81,10 @@ func (o *DownloadClusterISOHeadersReader) ReadResponse(response runtime.ClientRe
 }
 
 // NewDownloadClusterISOHeadersOK creates a DownloadClusterISOHeadersOK with default headers values
-func NewDownloadClusterISOHeadersOK() *DownloadClusterISOHeadersOK {
-	return &DownloadClusterISOHeadersOK{}
+func NewDownloadClusterISOHeadersOK(writer io.Writer) *DownloadClusterISOHeadersOK {
+	return &DownloadClusterISOHeadersOK{
+		Payload: writer,
+	}
 }
 
 /*DownloadClusterISOHeadersOK handles this case with default header values.
@@ -92,10 +95,19 @@ type DownloadClusterISOHeadersOK struct {
 	/*Size of the ISO in bytes
 	 */
 	ContentLength int64
+	/*Type of content returned by the GET endpoint
+	 */
+	ContentType string
+
+	Payload io.Writer
 }
 
 func (o *DownloadClusterISOHeadersOK) Error() string {
-	return fmt.Sprintf("[HEAD /clusters/{cluster_id}/downloads/image][%d] downloadClusterISOHeadersOK ", 200)
+	return fmt.Sprintf("[HEAD /clusters/{cluster_id}/downloads/image][%d] downloadClusterISOHeadersOK  %+v", 200, o.Payload)
+}
+
+func (o *DownloadClusterISOHeadersOK) GetPayload() io.Writer {
+	return o.Payload
 }
 
 func (o *DownloadClusterISOHeadersOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -106,6 +118,14 @@ func (o *DownloadClusterISOHeadersOK) readResponse(response runtime.ClientRespon
 		return errors.InvalidType("Content-Length", "header", "int64", response.GetHeader("Content-Length"))
 	}
 	o.ContentLength = contentLength
+
+	// response header Content-Type
+	o.ContentType = response.GetHeader("Content-Type")
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

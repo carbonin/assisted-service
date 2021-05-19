@@ -6,6 +6,7 @@ package installer
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/go-openapi/runtime"
@@ -26,6 +27,15 @@ type DownloadClusterISOHeadersOK struct {
 
 	 */
 	ContentLength int64 `json:"Content-Length"`
+	/*Type of content returned by the GET endpoint
+
+	 */
+	ContentType string `json:"Content-Type"`
+
+	/*
+	  In: Body
+	*/
+	Payload io.ReadCloser `json:"body,omitempty"`
 }
 
 // NewDownloadClusterISOHeadersOK creates DownloadClusterISOHeadersOK with default headers values
@@ -45,6 +55,28 @@ func (o *DownloadClusterISOHeadersOK) SetContentLength(contentLength int64) {
 	o.ContentLength = contentLength
 }
 
+// WithContentType adds the contentType to the download cluster i s o headers o k response
+func (o *DownloadClusterISOHeadersOK) WithContentType(contentType string) *DownloadClusterISOHeadersOK {
+	o.ContentType = contentType
+	return o
+}
+
+// SetContentType sets the contentType to the download cluster i s o headers o k response
+func (o *DownloadClusterISOHeadersOK) SetContentType(contentType string) {
+	o.ContentType = contentType
+}
+
+// WithPayload adds the payload to the download cluster i s o headers o k response
+func (o *DownloadClusterISOHeadersOK) WithPayload(payload io.ReadCloser) *DownloadClusterISOHeadersOK {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the download cluster i s o headers o k response
+func (o *DownloadClusterISOHeadersOK) SetPayload(payload io.ReadCloser) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *DownloadClusterISOHeadersOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
@@ -55,9 +87,18 @@ func (o *DownloadClusterISOHeadersOK) WriteResponse(rw http.ResponseWriter, prod
 		rw.Header().Set("Content-Length", contentLength)
 	}
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	// response header Content-Type
+
+	contentType := o.ContentType
+	if contentType != "" {
+		rw.Header().Set("Content-Type", contentType)
+	}
 
 	rw.WriteHeader(200)
+	payload := o.Payload
+	if err := producer.Produce(rw, payload); err != nil {
+		panic(err) // let the recovery middleware deal with this
+	}
 }
 
 // DownloadClusterISOHeadersBadRequestCode is the HTTP code returned for type DownloadClusterISOHeadersBadRequest

@@ -170,7 +170,7 @@ var _ = Describe("image tests", func() {
 		_, err = userBMClient.Installer.DownloadClusterISO(ctx, &installer.DownloadClusterISOParams{ClusterID: clusterID}, file)
 		Expect(err).To(BeAssignableToTypeOf(installer.NewDownloadClusterISONotFound()))
 
-		_, err = userBMClient.Installer.DownloadClusterISOHeaders(ctx, &installer.DownloadClusterISOHeadersParams{ClusterID: clusterID})
+		_, err = userBMClient.Installer.DownloadClusterISOHeaders(ctx, &installer.DownloadClusterISOHeadersParams{ClusterID: clusterID}, file)
 		Expect(err).To(BeAssignableToTypeOf(installer.NewDownloadClusterISOHeadersNotFound()))
 
 		// test that an event was added
@@ -184,7 +184,7 @@ var _ = Describe("image tests", func() {
 	})
 
 	It("download_headers_non_existing_cluster", func() {
-		_, err = userBMClient.Installer.DownloadClusterISOHeaders(ctx, &installer.DownloadClusterISOHeadersParams{ClusterID: *strToUUID(uuid.New().String())})
+		_, err = userBMClient.Installer.DownloadClusterISOHeaders(ctx, &installer.DownloadClusterISOHeadersParams{ClusterID: *strToUUID(uuid.New().String())}, file)
 		Expect(err).Should(HaveOccurred())
 	})
 
@@ -213,7 +213,7 @@ var _ = Describe("image tests", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 		_, err = userBMClient.Installer.DownloadClusterISOHeaders(ctx, &installer.DownloadClusterISOHeadersParams{
-			ClusterID: *cluster.GetPayload().ID})
+			ClusterID: *cluster.GetPayload().ID}, file)
 		Expect(reflect.TypeOf(err)).Should(Equal(reflect.TypeOf(installer.NewDownloadClusterISOHeadersNotFound())))
 	})
 })
@@ -325,7 +325,7 @@ func downloadClusterIsoHeaders(ctx context.Context, clusterID strfmt.UUID) {
 
 	_, err = userBMClient.Installer.DownloadClusterISOHeaders(ctx, &installer.DownloadClusterISOHeadersParams{
 		ClusterID: clusterID,
-	})
+	}, file)
 	Expect(err).NotTo(HaveOccurred())
 	verifyFileNotEmpty(file)
 }
