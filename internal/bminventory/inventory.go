@@ -712,38 +712,103 @@ func (b *bareMetalInventory) DeregisterClusterInternal(ctx context.Context, para
 	return nil
 }
 
+func (b *bareMetalInventory) clusterBaseISOName(version string, imageType models.ImageType) (string, error) {
+	switch imageType {
+	case models.ImageTypeFullIso:
+		return b.objectHandler.GetBaseIsoObject(version)
+	case models.ImageTypeMinimalIso:
+		return b.objectHandler.GetMinimalIsoObjectName(version)
+	default:
+		return "", errors.Errorf("invalid image type %s", imageType)
+	}
+}
+
+func (b *bareMetalInventory) clusterISOStreamReader(ctx context.Context, cluster *common.Cluster) (io.ReadCloser, int64, error) {
+	ignitionConfig, err := b.IgnitionBuilder.FormatDiscoveryIgnitionFile(cluster, b.IgnitionConfig, false, b.authHandler.AuthType())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	baseISOName, err := b.clusterBaseISOName(cluster.OpenshiftVersion, cluster.ImageInfo.Type)
+	if err != nil {
+		return nil, 0, errors.Wrap(err, "failed to get base ISO name")
+	}
+
+	baseISOReader, size, err := b.objectHandler.DownloadPublic(ctx, baseISOName)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	clusterProxyInfo := &isoeditor.ClusterProxyInfo{
+		HTTPProxy:  cluster.HTTPProxy,
+		HTTPSProxy: cluster.HTTPSProxy,
+		NoProxy:    cluster.NoProxy,
+	}
+
+	var netFiles []staticnetworkconfig.StaticNetworkConfigData
+	if cluster.ImageInfo.StaticNetworkConfig != "" {
+		netFiles, err = b.staticNetworkConfig.GenerateStaticNetworkConfigData(cluster.ImageInfo.StaticNetworkConfig)
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	reader, err := isoeditor.NewClusterISOReader(baseISOReader, ignitionConfig, netFiles, clusterProxyInfo, cluster.ImageInfo.Type)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return ioutil.NopCloser(reader), size, nil
+}
+
 func (b *bareMetalInventory) DownloadClusterISO(ctx context.Context, params installer.DownloadClusterISOParams) middleware.Responder {
 	log := logutil.FromContext(ctx, b.log)
-	var cluster common.Cluster
+	var (
+		cluster       common.Cluster
+		reader        io.ReadCloser
+		contentLength int64
+		err           error
+	)
 
-	if err := b.db.First(&cluster, "id = ?", params.ClusterID).Error; err != nil {
+	if err = b.db.First(&cluster, "id = ?", params.ClusterID).Error; err != nil {
 		log.WithError(err).Errorf("failed to get cluster %s", params.ClusterID)
 		return common.NewApiError(http.StatusNotFound, err)
 	}
 
-	imgName := getImageName(*cluster.ID)
-	exists, err := b.objectHandler.DoesObjectExist(ctx, imgName)
-	if err != nil {
-		log.WithError(err).Errorf("Failed to get ISO for cluster %s", cluster.ID.String())
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError,
-			"Failed to download image: error fetching from storage backend", time.Now())
-		return installer.NewDownloadClusterISOInternalServerError().
-			WithPayload(common.GenerateError(http.StatusInternalServerError, err))
-	}
-	if !exists {
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError,
-			"Failed to download image: the image was not found (perhaps it expired) - please generate the image and try again", time.Now())
-		return installer.NewDownloadClusterISONotFound().
-			WithPayload(common.GenerateError(http.StatusNotFound, errors.New("The image was not found "+
-				"(perhaps it expired) - please generate the image and try again")))
-	}
-	reader, contentLength, err := b.objectHandler.Download(ctx, imgName)
-	if err != nil {
-		log.WithError(err).Errorf("Failed to get ISO for cluster %s", cluster.ID.String())
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError,
-			"Failed to download image: error fetching from storage backend", time.Now())
-		return installer.NewDownloadClusterISOInternalServerError().
-			WithPayload(common.GenerateError(http.StatusInternalServerError, err))
+	if cluster.ImageInfo.IsStream {
+		reader, contentLength, err = b.clusterISOStreamReader(ctx, &cluster)
+		if err != nil {
+			log.WithError(err).Errorf("Failed to create ISO editor stream for cluster %s", cluster.ID.String())
+			b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError,
+				"Failed to download image: error creating editor stream", time.Now())
+			return installer.NewDownloadClusterISOInternalServerError().
+				WithPayload(common.GenerateError(http.StatusInternalServerError, err))
+		}
+	} else {
+		imgName := getImageName(*cluster.ID)
+		exists, err := b.objectHandler.DoesObjectExist(ctx, imgName)
+		if err != nil {
+			log.WithError(err).Errorf("Failed to get ISO for cluster %s", cluster.ID.String())
+			b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError,
+				"Failed to download image: error fetching from storage backend", time.Now())
+			return installer.NewDownloadClusterISOInternalServerError().
+				WithPayload(common.GenerateError(http.StatusInternalServerError, err))
+		}
+		if !exists {
+			b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError,
+				"Failed to download image: the image was not found (perhaps it expired) - please generate the image and try again", time.Now())
+			return installer.NewDownloadClusterISONotFound().
+				WithPayload(common.GenerateError(http.StatusNotFound, errors.New("The image was not found "+
+					"(perhaps it expired) - please generate the image and try again")))
+		}
+		reader, contentLength, err = b.objectHandler.Download(ctx, imgName)
+		if err != nil {
+			log.WithError(err).Errorf("Failed to get ISO for cluster %s", cluster.ID.String())
+			b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError,
+				"Failed to download image: error fetching from storage backend", time.Now())
+			return installer.NewDownloadClusterISOInternalServerError().
+				WithPayload(common.GenerateError(http.StatusInternalServerError, err))
+		}
 	}
 	b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityInfo,
 		fmt.Sprintf(`Started image download (image type is "%s")`, cluster.ImageInfo.Type), time.Now())
@@ -762,33 +827,81 @@ func (b *bareMetalInventory) DownloadClusterISOHeaders(ctx context.Context, para
 		return common.NewApiError(http.StatusNotFound, err)
 	}
 
-	imgName := getImageName(*cluster.ID)
-	exists, err := b.objectHandler.DoesObjectExist(ctx, imgName)
-	if err != nil {
-		log.WithError(err).Errorf("Failed to get ISO for cluster %s", cluster.ID.String())
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError,
-			"Failed to download image: error fetching from storage backend", time.Now())
-		return installer.NewDownloadClusterISOHeadersInternalServerError().
-			WithPayload(common.GenerateError(http.StatusInternalServerError, err))
-	}
-	if !exists {
-		return installer.NewDownloadClusterISOHeadersNotFound().
-			WithPayload(common.GenerateError(http.StatusNotFound, errors.New("The image was not found")))
-	}
-	imgSize, err := b.objectHandler.GetObjectSizeBytes(ctx, imgName)
-	if err != nil {
-		log.WithError(err).Errorf("Failed to get ISO size for cluster %s", cluster.ID.String())
-		return common.NewApiError(http.StatusBadRequest, err)
+	var (
+		imgName string
+		err     error
+		imgSize int64
+	)
+	// use the base iso to determine size when streaming
+	if cluster.ImageInfo.IsStream {
+		imgName, err = b.clusterBaseISOName(cluster.OpenshiftVersion, cluster.ImageInfo.Type)
+		if err != nil {
+			log.WithError(err).Error("failed to get base iso name")
+			return common.NewApiError(http.StatusInternalServerError, err)
+		}
+		exists, err := b.objectHandler.DoesPublicObjectExist(ctx, imgName)
+		if err != nil {
+			log.WithError(err).Errorf("Failed to get ISO for cluster %s", cluster.ID.String())
+			b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError,
+				"Failed to download image: error fetching from storage backend", time.Now())
+			return installer.NewDownloadClusterISOHeadersInternalServerError().
+				WithPayload(common.GenerateError(http.StatusInternalServerError, err))
+		}
+		if !exists {
+			return installer.NewDownloadClusterISOHeadersNotFound().
+				WithPayload(common.GenerateError(http.StatusNotFound, errors.New("The image was not found")))
+		}
+		imgSize, err = b.objectHandler.GetPublicObjectSizeBytes(ctx, imgName)
+		if err != nil {
+			log.WithError(err).Errorf("Failed to get ISO size for cluster %s", cluster.ID.String())
+			return common.NewApiError(http.StatusBadRequest, err)
+		}
+	} else {
+		imgName = getImageName(*cluster.ID)
+		exists, err := b.objectHandler.DoesObjectExist(ctx, imgName)
+		if err != nil {
+			log.WithError(err).Errorf("Failed to get ISO for cluster %s", cluster.ID.String())
+			b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError,
+				"Failed to download image: error fetching from storage backend", time.Now())
+			return installer.NewDownloadClusterISOHeadersInternalServerError().
+				WithPayload(common.GenerateError(http.StatusInternalServerError, err))
+		}
+		if !exists {
+			return installer.NewDownloadClusterISOHeadersNotFound().
+				WithPayload(common.GenerateError(http.StatusNotFound, errors.New("The image was not found")))
+		}
+		imgSize, err = b.objectHandler.GetObjectSizeBytes(ctx, imgName)
+		if err != nil {
+			log.WithError(err).Errorf("Failed to get ISO size for cluster %s", cluster.ID.String())
+			return common.NewApiError(http.StatusBadRequest, err)
+		}
 	}
 	return installer.NewDownloadClusterISOHeadersOK().WithContentLength(imgSize)
 }
 
 func (b *bareMetalInventory) updateImageInfoPostUpload(ctx context.Context, cluster *common.Cluster, clusterProxyHash string, imageType models.ImageType, generated bool) error {
 	updates := map[string]interface{}{}
-	imgName := getImageName(*cluster.ID)
-	imgSize, err := b.objectHandler.GetObjectSizeBytes(ctx, imgName)
-	if err != nil {
-		return errors.New("Failed to generate image: error fetching size")
+	var (
+		imgName string
+		err     error
+		imgSize int64
+	)
+	// use the base iso to determine size when streaming
+	if cluster.ImageInfo.IsStream {
+		imgName, err = b.clusterBaseISOName(cluster.OpenshiftVersion, cluster.ImageInfo.Type)
+		if err != nil {
+			return errors.New("Failed to generate image: error fetching size")
+		}
+		imgSize, err = b.objectHandler.GetPublicObjectSizeBytes(ctx, imgName)
+		if err != nil {
+			return errors.New("Failed to generate image: error fetching size")
+		}
+	} else {
+		imgName = getImageName(*cluster.ID)
+		imgSize, err = b.objectHandler.GetObjectSizeBytes(ctx, imgName)
+		if err != nil {
+			return errors.New("Failed to generate image: error fetching size")
+		}
 	}
 	updates["image_size_bytes"] = imgSize
 	cluster.ImageInfo.SizeBytes = &imgSize
@@ -796,7 +909,7 @@ func (b *bareMetalInventory) updateImageInfoPostUpload(ctx context.Context, clus
 	// Presigned URL only works with AWS S3 because Scality is not exposed
 	if generated {
 		downloadURL := ""
-		if b.objectHandler.IsAwsS3() {
+		if b.objectHandler.IsAwsS3() && !cluster.ImageInfo.IsStream {
 			downloadURL, err = b.objectHandler.GeneratePresignedDownloadURL(ctx, imgName, imgName, b.Config.ImageExpirationTime)
 			if err != nil {
 				return errors.New("Failed to generate image: error generating URL")
@@ -817,8 +930,18 @@ func (b *bareMetalInventory) updateImageInfoPostUpload(ctx context.Context, clus
 		}
 		updates["image_download_url"] = downloadURL
 		cluster.ImageInfo.DownloadURL = downloadURL
-		updates["image_generated"] = true
-		cluster.ImageGenerated = true
+
+		// Always have generated be false when streaming
+		// This ensures that a subsequent call to generate an image without streaming
+		// but with the same parameters won't try to use an existing one that doesn't exist
+		if cluster.ImageInfo.IsStream {
+			updates["image_generated"] = false
+			cluster.ImageGenerated = false
+		} else {
+			updates["image_generated"] = true
+			cluster.ImageGenerated = true
+		}
+
 	}
 
 	if cluster.ProxyHash != clusterProxyHash {
@@ -894,17 +1017,20 @@ func (b *bareMetalInventory) GenerateClusterISOInternal(ctx context.Context, par
 		return nil, err
 	}
 
-	/* We need to ensure that the metadata in the DB matches the image that will be uploaded to S3,
-	so we check that at least 10 seconds have past since the previous request to reduce the chance
-	of a race between two consecutive requests.
-	*/
 	now := time.Now()
-	previousCreatedAt := time.Time(cluster.ImageInfo.CreatedAt)
-	if previousCreatedAt.Add(WindowBetweenRequestsInSeconds).After(now) {
-		log.Error("request came too soon after previous request")
-		return nil, common.NewApiError(
-			http.StatusConflict,
-			errors.New("Another request to generate an image has been recently submitted. Please wait a few seconds and try again."))
+	// We only need this check if we're planning on saving the image somewhere
+	if !params.ImageCreateParams.StreamImage {
+		/* We need to ensure that the metadata in the DB matches the image that will be uploaded to S3,
+		so we check that at least 10 seconds have past since the previous request to reduce the chance
+		of a race between two consecutive requests.
+		*/
+		previousCreatedAt := time.Time(cluster.ImageInfo.CreatedAt)
+		if previousCreatedAt.Add(WindowBetweenRequestsInSeconds).After(now) {
+			log.Error("request came too soon after previous request")
+			return nil, common.NewApiError(
+				http.StatusConflict,
+				errors.New("Another request to generate an image has been recently submitted. Please wait a few seconds and try again."))
+		}
 	}
 
 	if !cluster.PullSecretSet {
@@ -926,7 +1052,8 @@ func (b *bareMetalInventory) GenerateClusterISOInternal(ctx context.Context, par
 	staticNetworkConfig := b.staticNetworkConfig.FormatStaticNetworkConfigForDB(params.ImageCreateParams.StaticNetworkConfig)
 
 	var imageExists bool
-	if cluster.ImageInfo.SSHPublicKey == params.ImageCreateParams.SSHPublicKey &&
+	if !params.ImageCreateParams.StreamImage &&
+		cluster.ImageInfo.SSHPublicKey == params.ImageCreateParams.SSHPublicKey &&
 		cluster.ProxyHash == clusterProxyHash &&
 		cluster.ImageInfo.StaticNetworkConfig == staticNetworkConfig &&
 		cluster.ImageGenerated &&
@@ -943,9 +1070,17 @@ func (b *bareMetalInventory) GenerateClusterISOInternal(ctx context.Context, par
 
 	updates := map[string]interface{}{}
 	updates["image_ssh_public_key"] = params.ImageCreateParams.SSHPublicKey
-	updates["image_created_at"] = strfmt.DateTime(now)
-	updates["image_expires_at"] = strfmt.DateTime(now.Add(b.Config.ImageExpirationTime))
 	updates["image_static_network_config"] = staticNetworkConfig
+	updates["image_is_stream"] = params.ImageCreateParams.StreamImage
+	if params.ImageCreateParams.StreamImage {
+		// These are not applicable for streaming
+		var zeroTime time.Time
+		updates["image_created_at"] = zeroTime
+		updates["image_expires_at"] = zeroTime
+	} else {
+		updates["image_created_at"] = strfmt.DateTime(now)
+		updates["image_expires_at"] = strfmt.DateTime(now.Add(b.Config.ImageExpirationTime))
+	}
 	if !imageExists {
 		// set image-generated indicator to false before the attempt to genearate the image in order to have an explicit
 		// state of the image creation based on the cluster parameters which will be committed to the DB
@@ -1013,25 +1148,29 @@ func (b *bareMetalInventory) createAndUploadNewImage(ctx context.Context, log lo
 		return common.NewApiError(http.StatusInternalServerError, err)
 	}
 
-	objectPrefix := fmt.Sprintf(s3wrapper.DiscoveryImageTemplate, cluster.ID.String())
+	// Don't generate the image here when streaming,
+	// but do update the image info so that we set the download url
+	if !params.ImageCreateParams.StreamImage {
+		objectPrefix := fmt.Sprintf(s3wrapper.DiscoveryImageTemplate, cluster.ID.String())
 
-	if params.ImageCreateParams.ImageType == models.ImageTypeMinimalIso {
-		if err := b.generateClusterMinimalISO(ctx, log, cluster, ignitionConfig, objectPrefix); err != nil {
-			log.WithError(err).Errorf("Failed to generate minimal ISO for cluster %s", cluster.ID)
-			b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, "Failed to generate minimal ISO", time.Now())
-			return common.NewApiError(http.StatusInternalServerError, err)
-		}
-	} else {
-		baseISOName, err := b.objectHandler.GetBaseIsoObject(cluster.OpenshiftVersion)
-		if err != nil {
-			log.WithError(err).Errorf("Failed to get source object name for cluster %s with ocp version %s", cluster.ID, cluster.OpenshiftVersion)
-			return common.NewApiError(http.StatusInternalServerError, err)
-		}
+		if params.ImageCreateParams.ImageType == models.ImageTypeMinimalIso {
+			if err := b.generateClusterMinimalISO(ctx, log, cluster, ignitionConfig, objectPrefix); err != nil {
+				log.WithError(err).Errorf("Failed to generate minimal ISO for cluster %s", cluster.ID)
+				b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, "Failed to generate minimal ISO", time.Now())
+				return common.NewApiError(http.StatusInternalServerError, err)
+			}
+		} else {
+			baseISOName, err := b.objectHandler.GetBaseIsoObject(cluster.OpenshiftVersion)
+			if err != nil {
+				log.WithError(err).Errorf("Failed to get source object name for cluster %s with ocp version %s", cluster.ID, cluster.OpenshiftVersion)
+				return common.NewApiError(http.StatusInternalServerError, err)
+			}
 
-		if err := b.objectHandler.UploadISO(ctx, ignitionConfig, baseISOName, objectPrefix); err != nil {
-			log.WithError(err).Errorf("Upload ISO failed for cluster %s", cluster.ID)
-			b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, "Failed to upload image", time.Now())
-			return common.NewApiError(http.StatusInternalServerError, err)
+			if err := b.objectHandler.UploadISO(ctx, ignitionConfig, baseISOName, objectPrefix); err != nil {
+				log.WithError(err).Errorf("Upload ISO failed for cluster %s", cluster.ID)
+				b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, "Failed to upload image", time.Now())
+				return common.NewApiError(http.StatusInternalServerError, err)
+			}
 		}
 	}
 
