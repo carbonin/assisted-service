@@ -31,6 +31,9 @@ type ImageInfo struct {
 	// Image generator version.
 	GeneratorVersion string `json:"generator_version,omitempty"`
 
+	// True if this image will be customized when download, false if it was pre-generated
+	IsStream bool `json:"is_stream,omitempty"`
+
 	// size bytes
 	// Minimum: 0
 	SizeBytes *int64 `json:"size_bytes,omitempty"`

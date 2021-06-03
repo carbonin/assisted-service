@@ -26,6 +26,9 @@ type ImageCreateParams struct {
 
 	// static network config
 	StaticNetworkConfig []*HostStaticNetworkConfig `json:"static_network_config"`
+
+	// True if the image should be streamed, false if it should be generated and saved in storage
+	StreamImage bool `json:"stream_image,omitempty"`
 }
 
 // Validate validates this image create params

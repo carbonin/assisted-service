@@ -6692,6 +6692,10 @@ func init() {
           "items": {
             "$ref": "#/definitions/host_static_network_config"
           }
+        },
+        "stream_image": {
+          "description": "True if the image should be streamed, false if it should be generated and saved in storage",
+          "type": "boolean"
         }
       }
     },
@@ -6714,6 +6718,10 @@ func init() {
         "generator_version": {
           "description": "Image generator version.",
           "type": "string"
+        },
+        "is_stream": {
+          "description": "True if this image will be customized when download, false if it was pre-generated",
+          "type": "boolean"
         },
         "size_bytes": {
           "type": "integer"
@@ -14333,6 +14341,10 @@ func init() {
           "items": {
             "$ref": "#/definitions/host_static_network_config"
           }
+        },
+        "stream_image": {
+          "description": "True if the image should be streamed, false if it should be generated and saved in storage",
+          "type": "boolean"
         }
       }
     },
@@ -14355,6 +14367,10 @@ func init() {
         "generator_version": {
           "description": "Image generator version.",
           "type": "string"
+        },
+        "is_stream": {
+          "description": "True if this image will be customized when download, false if it was pre-generated",
+          "type": "boolean"
         },
         "size_bytes": {
           "type": "integer",

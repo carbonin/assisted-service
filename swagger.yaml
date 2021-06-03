@@ -3465,6 +3465,9 @@ definitions:
       image_type:
         description: Type of image that should be generated.
         $ref: '#/definitions/image_type'
+      stream_image:
+        type: boolean
+        description: True if the image should be streamed, false if it should be generated and saved in storage
 
   assisted-service-iso-create-params:
     type: object
@@ -4318,6 +4321,10 @@ definitions:
         description: static network configuration string in the format expected by discovery ignition generation
       type:
         $ref: '#/definitions/image_type'
+      is_stream:
+        type: boolean
+        description: True if this image will be customized when download, false if it was pre-generated
+
 
   host_static_network_config:
     type: object
