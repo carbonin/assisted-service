@@ -213,6 +213,21 @@ func (mr *MockAPIMockRecorder) GetObjectSizeBytes(arg0, arg1 interface{}) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetObjectSizeBytes", reflect.TypeOf((*MockAPI)(nil).GetObjectSizeBytes), arg0, arg1)
 }
 
+// GetPublicObjectSizeBytes mocks base method
+func (m *MockAPI) GetPublicObjectSizeBytes(arg0 context.Context, arg1 string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPublicObjectSizeBytes", arg0, arg1)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPublicObjectSizeBytes indicates an expected call of GetPublicObjectSizeBytes
+func (mr *MockAPIMockRecorder) GetPublicObjectSizeBytes(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPublicObjectSizeBytes", reflect.TypeOf((*MockAPI)(nil).GetPublicObjectSizeBytes), arg0, arg1)
+}
+
 // IsAwsS3 mocks base method
 func (m *MockAPI) IsAwsS3() bool {
 	m.ctrl.T.Helper()

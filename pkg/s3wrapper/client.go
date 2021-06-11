@@ -61,6 +61,7 @@ type API interface {
 	GetMinimalIsoObjectName(openshiftVersion string) (string, error)
 
 	CreatePublicBucket() error
+	GetPublicObjectSizeBytes(ctx context.Context, objectName string) (int64, error)
 	UploadStreamToPublicBucket(ctx context.Context, reader io.Reader, objectName string) error
 	UploadFileToPublicBucket(ctx context.Context, filePath, objectName string) error
 	DoesPublicObjectExist(ctx context.Context, objectName string) (bool, error)
@@ -373,6 +374,10 @@ func (c *S3Client) getObjectSizeBytes(ctx context.Context, objectName, bucket st
 
 func (c *S3Client) GetObjectSizeBytes(ctx context.Context, objectName string) (int64, error) {
 	return c.getObjectSizeBytes(ctx, objectName, c.cfg.S3Bucket, c.client)
+}
+
+func (c *S3Client) GetPublicObjectSizeBytes(ctx context.Context, objectName string) (int64, error) {
+	return c.getObjectSizeBytes(ctx, objectName, c.cfg.PublicS3Bucket, c.client)
 }
 
 func (c *S3Client) GeneratePresignedDownloadURL(ctx context.Context, objectName string, downloadFilename string, duration time.Duration) (string, error) {

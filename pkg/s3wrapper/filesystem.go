@@ -232,6 +232,10 @@ func (f *FSClient) GetObjectSizeBytes(ctx context.Context, objectName string) (i
 	return info.Size(), nil
 }
 
+func (f *FSClient) GetPublicObjectSizeBytes(ctx context.Context, objectName string) (int64, error) {
+	return f.GetObjectSizeBytes(ctx, objectName)
+}
+
 func (f *FSClient) GeneratePresignedDownloadURL(ctx context.Context, objectName string, downloadFilename string, duration time.Duration) (string, error) {
 	return "", nil
 }
@@ -508,6 +512,10 @@ func (d *FSClientDecorator) DeleteObject(ctx context.Context, objectName string)
 
 func (d *FSClientDecorator) GetObjectSizeBytes(ctx context.Context, objectName string) (int64, error) {
 	return d.fsClient.GetObjectSizeBytes(ctx, objectName)
+}
+
+func (d *FSClientDecorator) GetPublicObjectSizeBytes(ctx context.Context, objectName string) (int64, error) {
+	return d.fsClient.GetPublicObjectSizeBytes(ctx, objectName)
 }
 
 func (d *FSClientDecorator) GeneratePresignedDownloadURL(ctx context.Context, objectName string, downloadFilename string, duration time.Duration) (string, error) {
