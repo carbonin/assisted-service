@@ -197,3 +197,16 @@ func IsSingleNode(log logrus.FieldLogger, db *gorm.DB, host *models.Host) bool {
 	}
 	return common.IsSingleNodeCluster(cluster)
 }
+
+func IsDiskEncryptionEnabledForRole(encryption models.DiskEncryption, role models.HostRole) bool {
+	switch swag.StringValue(encryption.EnableOn) {
+	case models.DiskEncryptionEnableOnAll:
+		return true
+	case models.DiskEncryptionEnableOnMasters:
+		return role == models.HostRoleMaster || role == models.HostRoleBootstrap
+	case models.DiskEncryptionEnableOnWorkers:
+		return role == models.HostRoleWorker
+	default:
+		return false
+	}
+}
