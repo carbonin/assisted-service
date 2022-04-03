@@ -346,19 +346,6 @@ func (v *validator) printCompatibleWithClusterPlatform(c *validationContext, sta
 	}
 }
 
-func isDiskEncryptionEnabledForRole(encryption models.DiskEncryption, role models.HostRole) bool {
-	switch swag.StringValue(encryption.EnableOn) {
-	case models.DiskEncryptionEnableOnAll:
-		return true
-	case models.DiskEncryptionEnableOnMasters:
-		return role == models.HostRoleMaster || role == models.HostRoleBootstrap
-	case models.DiskEncryptionEnableOnWorkers:
-		return role == models.HostRoleWorker
-	default:
-		return false
-	}
-}
-
 func (v *validator) getDiskEncryptionForDay2(host *models.Host) (*types.Luks, error) {
 	var response models.APIVipConnectivityResponse
 	if err := json.Unmarshal([]byte(host.APIVipConnectivity), &response); err != nil {
@@ -428,7 +415,7 @@ func (v *validator) diskEncryptionRequirementsSatisfied(c *validationContext) Va
 		return ValidationPending
 	}
 
-	if !isDiskEncryptionEnabledForRole(*c.cluster.DiskEncryption, role) {
+	if !hostutil.IsDiskEncryptionEnabledForRole(*c.cluster.DiskEncryption, role) {
 		return ValidationSuccessSuppressOutput
 	}
 
