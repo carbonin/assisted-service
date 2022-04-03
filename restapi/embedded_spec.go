@@ -8700,6 +8700,7 @@ func init() {
         "free-network-addresses",
         "dhcp-lease-allocate",
         "api-vip-connectivity-check",
+        "tang-connectivity-check",
         "ntp-synchronizer",
         "installation-disk-speed-check",
         "container-image-availability",
@@ -8757,6 +8758,27 @@ func init() {
         },
         "virtual": {
           "description": "Whether the machine appears to be a virtual machine or not",
+          "type": "boolean"
+        }
+      }
+    },
+    "tang_connectivity_request": {
+      "type": "object",
+      "required": [
+        "tang_servers"
+      ],
+      "properties": {
+        "tang_servers": {
+          "description": "JSON-formatted string containing additional information regarding tang's configuration",
+          "type": "string"
+        }
+      }
+    },
+    "tang_connectivity_response": {
+      "type": "object",
+      "properties": {
+        "is_success": {
+          "description": "Tang check result.",
           "type": "boolean"
         }
       }
@@ -17783,6 +17805,7 @@ func init() {
         "free-network-addresses",
         "dhcp-lease-allocate",
         "api-vip-connectivity-check",
+        "tang-connectivity-check",
         "ntp-synchronizer",
         "installation-disk-speed-check",
         "container-image-availability",
@@ -17840,6 +17863,27 @@ func init() {
         },
         "virtual": {
           "description": "Whether the machine appears to be a virtual machine or not",
+          "type": "boolean"
+        }
+      }
+    },
+    "tang_connectivity_request": {
+      "type": "object",
+      "required": [
+        "tang_servers"
+      ],
+      "properties": {
+        "tang_servers": {
+          "description": "JSON-formatted string containing additional information regarding tang's configuration",
+          "type": "string"
+        }
+      }
+    },
+    "tang_connectivity_response": {
+      "type": "object",
+      "properties": {
+        "is_success": {
+          "description": "Tang check result.",
           "type": "boolean"
         }
       }
