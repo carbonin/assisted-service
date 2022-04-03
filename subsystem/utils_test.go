@@ -343,6 +343,21 @@ func generateApiVipPostStepReply(ctx context.Context, h *models.Host, success bo
 	Expect(err).ShouldNot(HaveOccurred())
 }
 
+// WIP
+//func generateTangPostStepReply(ctx context.Context, h *models.Host) {
+//	_, err := agentBMClient.Installer.V2PostStepReply(ctx, &installer.V2PostStepReplyParams{
+//		InfraEnvID: h.InfraEnvID,
+//		HostID:     *h.ID,
+//		Reply: &models.StepReply{
+//			ExitCode: 0,
+//			StepType: models.StepTypeTangConnectivityCheck,
+//			Output:   "tang is reachable",
+//			StepID:   "tang_connectivity_check",
+//		},
+//	})
+//	Expect(err).ShouldNot(HaveOccurred())
+//}
+
 func generateContainerImageAvailabilityPostStepReply(ctx context.Context, h *models.Host, imageStatuses []*models.ContainerImageAvailability) {
 	response := models.ContainerImageAvailabilityResponse{
 		Images: imageStatuses,
