@@ -3143,6 +3143,8 @@ func filterReplyByType(params installer.V2PostStepReplyParams) (string, error) {
 		stepReply, err = filterReply(&models.ConnectivityReport{}, params.Reply.Output)
 	case models.StepTypeAPIVipConnectivityCheck:
 		stepReply, err = filterReply(&models.APIVipConnectivityResponse{}, params.Reply.Output)
+	case models.StepTypeTangConnectivityCheck:
+		stepReply, err = filterReply(&models.TangConnectivityResponse{}, params.Reply.Output)
 	case models.StepTypeFreeNetworkAddresses:
 		stepReply, err = filterReply(&models.FreeNetworksAddresses{}, params.Reply.Output)
 	case models.StepTypeDhcpLeaseAllocate:

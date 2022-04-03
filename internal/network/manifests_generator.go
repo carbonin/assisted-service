@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"text/template"
 
+	"github.com/openshift/assisted-service/pkg/tang"
+
 	"github.com/go-openapi/swag"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/openshift/assisted-service/internal/common"
 	manifestsapi "github.com/openshift/assisted-service/internal/manifests/api"
 	"github.com/openshift/assisted-service/models"
+	"github.com/openshift/assisted-service/pkg/tang"
 	operations "github.com/openshift/assisted-service/restapi/operations/manifests"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -310,7 +313,7 @@ func (m *ManifestsGenerator) AddDiskEncryptionManifest(ctx context.Context, log 
 
 	case models.DiskEncryptionModeTang:
 
-		tangServers, err := common.UnmarshalTangServers(c.DiskEncryption.TangServers)
+		tangServers, err := tang.UnmarshalTangServers(c.DiskEncryption.TangServers)
 		if err != nil {
 			log.WithError(err).Error("failed to unmarshal tang_server from cluster object")
 			return err

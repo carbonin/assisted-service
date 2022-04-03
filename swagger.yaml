@@ -4085,6 +4085,7 @@ definitions:
       - free-network-addresses
       - dhcp-lease-allocate
       - api-vip-connectivity-check
+      - tang-connectivity-check
       - ntp-synchronizer
       - installation-disk-speed-check
       - container-image-availability
@@ -5395,6 +5396,22 @@ definitions:
       ignition:
         type: string
         description: Ignition fetched from the specified API VIP
+
+  tang_connectivity_request:
+    type: object
+    required:
+      - url
+    properties:
+      url:
+        type: string
+        description: URL address of the Tang server.
+
+  tang_connectivity_response:
+    type: object
+    properties:
+      is_success:
+        type: boolean
+        description: Tang check result.
 
   disk_speed_check_request:
     type: object

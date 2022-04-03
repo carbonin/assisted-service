@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/openshift/assisted-service/pkg/tang"
+
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/go-openapi/swag"
 	"github.com/openshift/assisted-service/internal/common"
@@ -17,6 +19,7 @@ import (
 	"github.com/openshift/assisted-service/models"
 	"github.com/openshift/assisted-service/pkg/auth"
 	"github.com/openshift/assisted-service/pkg/ocm"
+	"github.com/openshift/assisted-service/pkg/tang"
 	"github.com/openshift/assisted-service/pkg/validations"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
@@ -501,7 +504,7 @@ func ValidateDiskEncryptionParams(diskEncryptionParams *models.DiskEncryption, D
 		if diskEncryptionParams.TangServers == "" {
 			return errors.New("Setting Tang mode but tang_servers isn't set")
 		}
-		tangServers, err := common.UnmarshalTangServers(diskEncryptionParams.TangServers)
+		tangServers, err := tang.UnmarshalTangServers(diskEncryptionParams.TangServers)
 		if err != nil {
 			return err
 		}
