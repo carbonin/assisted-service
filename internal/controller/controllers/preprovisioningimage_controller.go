@@ -49,6 +49,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
+const IronicAgentImageAnnotation = "infraenv." + aiv1beta1.Group + "/ironic-agent-image"
+
 type imageConditionReason string
 
 // PreprovisioningImage reconciles a AgentClusterInstall object
@@ -111,7 +113,7 @@ func (r *PreprovisioningImageReconciler) Reconcile(origCtx context.Context, req 
 		log.Info("failed to find infraEnv for image")
 		return ctrl.Result{}, nil
 	}
-	if !IronicAgentEnabled(log, infraEnv) {
+	if ironicAgentUpdateRequired(log, infraEnv) {
 		return r.AddIronicAgentToInfraEnv(ctx, log, infraEnv)
 	}
 
@@ -344,8 +346,9 @@ func (r *PreprovisioningImageReconciler) AddIronicAgentToInfraEnv(ctx context.Co
 		log.WithError(err).Error("failed to get corresponding infraEnv")
 		return ctrl.Result{}, err
 	}
-	ironicAgentImage := ""
-	if infraEnvInternal.OpenshiftVersion != "" {
+
+	ironicAgentImage, found := infraEnv.GetAnnotations()[IronicAgentImageAnnotation]
+	if (!found || ironicAgentImage == "") && infraEnvInternal.OpenshiftVersion != "" {
 		ironicAgentImage, err = r.getIronicAgentImage(log, *infraEnvInternal)
 		if err != nil {
 			log.WithError(err).Warningf("Failed to get ironicAgentImage for infraEnv: %s", infraEnv.Name)
@@ -363,11 +366,13 @@ func (r *PreprovisioningImageReconciler) AddIronicAgentToInfraEnv(ctx context.Co
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+
+	infraEnv.Status.InfraEnvDebugInfo.IronicAgentImage = ironicAgentImage
 	if infraEnv.ObjectMeta.Annotations == nil {
 		infraEnv.ObjectMeta.Annotations = make(map[string]string)
 	}
-
 	infraEnv.Annotations[EnableIronicAgentAnnotation] = "true"
+
 	err = r.Client.Update(ctx, infraEnv)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -397,15 +402,22 @@ func (r *PreprovisioningImageReconciler) getIronicAgentImage(log logrus.FieldLog
 	return ironicAgentImage, nil
 }
 
-func IronicAgentEnabled(log logrus.FieldLogger, infraEnv *aiv1beta1.InfraEnv) bool {
+func ironicAgentUpdateRequired(log logrus.FieldLogger, infraEnv *aiv1beta1.InfraEnv) bool {
 	value, ok := infraEnv.GetAnnotations()[EnableIronicAgentAnnotation]
 	if !ok {
-		return false
+		return true
 	}
 	log.Debugf("InfraEnv annotation %s value %s", EnableIronicAgentAnnotation, value)
-	enabled, err := strconv.ParseBool(value)
+	ironicEnabled, err := strconv.ParseBool(value)
 	if err != nil {
 		log.WithError(err).Errorf("failed to parse %s to bool value", value)
 	}
-	return enabled
+
+	desiredImage, ok := infraEnv.GetAnnotations()[IronicAgentImageAnnotation]
+	if !ok {
+		return !ironicEnabled
+	}
+	haveImage := infraEnv.Status.InfraEnvDebugInfo.IronicAgentImage
+
+	return !ironicEnabled || desiredImage != haveImage
 }
