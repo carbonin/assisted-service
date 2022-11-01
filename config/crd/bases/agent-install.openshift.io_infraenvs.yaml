@@ -280,6 +280,12 @@ spec:
                     description: EventsURL specifies an HTTP/S URL that contains InfraEnv
                       events
                     type: string
+                  ironicAgentImage:
+                    description: IronicAgentImage is the pull spec of the ironic agent
+                      included with the InfraEnv discovery image
+                    type: string
+                required:
+                - ironicAgentImage
                 type: object
               isoDownloadURL:
                 description: ISODownloadURL specifies an HTTP/S URL that contains

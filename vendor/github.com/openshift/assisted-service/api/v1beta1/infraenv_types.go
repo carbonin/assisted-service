@@ -140,6 +140,8 @@ type InfraEnvDebugInfo struct {
 	// EventsURL specifies an HTTP/S URL that contains InfraEnv events
 	// +optional
 	EventsURL string `json:"eventsURL"`
+	// IronicAgentImage is the pull spec of the ironic agent included with the InfraEnv discovery image
+	IronicAgentImage string `json:"ironicAgentImage"`
 }
 
 type BootArtifacts struct {
