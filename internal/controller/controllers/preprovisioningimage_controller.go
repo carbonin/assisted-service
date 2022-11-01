@@ -347,12 +347,15 @@ func (r *PreprovisioningImageReconciler) AddIronicAgentToInfraEnv(ctx context.Co
 		return ctrl.Result{}, err
 	}
 
+	var imageOverridden bool
 	ironicAgentImage, found := infraEnv.GetAnnotations()[IronicAgentImageAnnotation]
 	if (!found || ironicAgentImage == "") && infraEnvInternal.OpenshiftVersion != "" {
 		ironicAgentImage, err = r.getIronicAgentImage(log, *infraEnvInternal)
 		if err != nil {
 			log.WithError(err).Warningf("Failed to get ironicAgentImage for infraEnv: %s", infraEnv.Name)
 		}
+	} else {
+		imageOverridden = true
 	}
 
 	// if the infraEnv doesn't have the enableIronicAgent annotation add the ironicIgnition to the invfraEnv
@@ -367,7 +370,9 @@ func (r *PreprovisioningImageReconciler) AddIronicAgentToInfraEnv(ctx context.Co
 		return ctrl.Result{}, err
 	}
 
-	infraEnv.Status.InfraEnvDebugInfo.IronicAgentImage = ironicAgentImage
+	if imageOverridden {
+		infraEnv.Status.InfraEnvDebugInfo.IronicAgentImage = ironicAgentImage
+	}
 	if infraEnv.ObjectMeta.Annotations == nil {
 		infraEnv.ObjectMeta.Annotations = make(map[string]string)
 	}
@@ -413,11 +418,8 @@ func ironicAgentUpdateRequired(log logrus.FieldLogger, infraEnv *aiv1beta1.Infra
 		log.WithError(err).Errorf("failed to parse %s to bool value", value)
 	}
 
-	desiredImage, ok := infraEnv.GetAnnotations()[IronicAgentImageAnnotation]
-	if !ok {
-		return !ironicEnabled
-	}
-	haveImage := infraEnv.Status.InfraEnvDebugInfo.IronicAgentImage
+	desiredOverride := infraEnv.GetAnnotations()[IronicAgentImageAnnotation]
+	previousOverride := infraEnv.Status.InfraEnvDebugInfo.IronicAgentImage
 
-	return !ironicEnabled || desiredImage != haveImage
+	return !ironicEnabled || desiredOverride != previousOverride
 }

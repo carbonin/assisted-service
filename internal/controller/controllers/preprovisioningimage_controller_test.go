@@ -160,22 +160,38 @@ var _ = Describe("PreprovisioningImage reconcile", func() {
 			Expect(c.Get(ctx, key, infraEnv)).To(BeNil())
 			Expect(infraEnv.ObjectMeta.Annotations[EnableIronicAgentAnnotation]).To(Equal("true"))
 		})
-		It("overrides the default image when specified via annotation", func() {
+		It("overrides the default image when specified via annotation and reverts when annotation is removed", func() {
+			testImage := "example.com/exampleorg/veryspecialironicimage:latest"
 			infraEnv.ObjectMeta.Annotations = make(map[string]string)
-			infraEnv.ObjectMeta.Annotations[IronicAgentImageAnnotation] = "example.com/exampleorg/veryspecialironicimage:latest"
+			infraEnv.ObjectMeta.Annotations[IronicAgentImageAnnotation] = testImage
 			Expect(c.Create(ctx, infraEnv)).To(BeNil())
 
-			mockInstallerInternal.EXPECT().GetInfraEnvByKubeKey(gomock.Any()).Return(backendInfraEnv, nil)
+			mockInstallerInternal.EXPECT().GetInfraEnvByKubeKey(gomock.Any()).Return(backendInfraEnv, nil).AnyTimes()
+			mockCRDEventsHandler.EXPECT().NotifyInfraEnvUpdates(infraEnv.Name, infraEnv.Namespace).AnyTimes()
 			mockInstallerInternal.EXPECT().UpdateInfraEnvInternal(gomock.Any(), gomock.Any(), gomock.Any()).
 				Do(func(ctx context.Context, params installer.UpdateInfraEnvParams, internalIgnitionConfig *string) {
 					Expect(params.InfraEnvID).To(Equal(*backendInfraEnv.ID))
 					Expect(params.InfraEnvUpdateParams.IgnitionConfigOverride).To(Equal(""))
-					Expect(*internalIgnitionConfig).Should(ContainSubstring("example.com/exampleorg/veryspecialironicimage:latest"))
+					Expect(*internalIgnitionConfig).Should(ContainSubstring(testImage))
 				}).Return(
 				&common.InfraEnv{InfraEnv: models.InfraEnv{ClusterID: sId, ID: &sId, DownloadURL: downloadURL, CPUArchitecture: infraEnvArch}, GeneratedAt: strfmt.DateTime(time.Now())}, nil).Times(1)
-			mockCRDEventsHandler.EXPECT().NotifyInfraEnvUpdates(infraEnv.Name, infraEnv.Namespace).Times(1)
 
 			res, err := pr.Reconcile(ctx, newPreprovisioningImageRequest(ppi))
+			Expect(err).To(BeNil())
+			Expect(res).To(Equal(ctrl.Result{}))
+
+			mockInstallerInternal.EXPECT().UpdateInfraEnvInternal(gomock.Any(), gomock.Any(), gomock.Any()).
+				Do(func(ctx context.Context, params installer.UpdateInfraEnvParams, internalIgnitionConfig *string) {
+					Expect(params.InfraEnvID).To(Equal(*backendInfraEnv.ID))
+					Expect(params.InfraEnvUpdateParams.IgnitionConfigOverride).To(Equal(""))
+					Expect(*internalIgnitionConfig).ShouldNot(ContainSubstring(testImage))
+				}).Return(
+				&common.InfraEnv{InfraEnv: models.InfraEnv{ClusterID: sId, ID: &sId, DownloadURL: downloadURL, CPUArchitecture: infraEnvArch}, GeneratedAt: strfmt.DateTime(time.Now())}, nil).Times(1)
+
+			Expect(c.Get(ctx, types.NamespacedName{Namespace: testNamespace, Name: "testInfraEnv"}, infraEnv)).To(BeNil())
+			delete(infraEnv.ObjectMeta.Annotations, IronicAgentImageAnnotation)
+			Expect(c.Update(ctx, infraEnv)).To(BeNil())
+			res, err = pr.Reconcile(ctx, newPreprovisioningImageRequest(ppi))
 			Expect(err).To(BeNil())
 			Expect(res).To(Equal(ctrl.Result{}))
 		})
@@ -207,11 +223,10 @@ var _ = Describe("PreprovisioningImage reconcile", func() {
 				&common.InfraEnv{InfraEnv: models.InfraEnv{ClusterID: sId, ID: &sId, DownloadURL: downloadURL, CPUArchitecture: infraEnvArch}, GeneratedAt: strfmt.DateTime(time.Now())}, nil).Times(1)
 
 			Expect(c.Get(ctx, types.NamespacedName{Namespace: testNamespace, Name: "testInfraEnv"}, infraEnv)).To(BeNil())
-			annotations := infraEnv.ObjectMeta.Annotations
-			if annotations == nil {
-				annotations = make(map[string]string)
+			if infraEnv.ObjectMeta.Annotations == nil {
+				infraEnv.ObjectMeta.Annotations = make(map[string]string)
 			}
-			annotations[IronicAgentImageAnnotation] = testImage
+			infraEnv.ObjectMeta.Annotations[IronicAgentImageAnnotation] = testImage
 			Expect(c.Update(ctx, infraEnv)).To(BeNil())
 			res, err = pr.Reconcile(ctx, newPreprovisioningImageRequest(ppi))
 			Expect(err).To(BeNil())
