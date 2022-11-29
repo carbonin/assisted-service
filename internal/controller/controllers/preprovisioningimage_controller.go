@@ -19,7 +19,9 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/iancoleman/strcase"
@@ -51,7 +53,10 @@ import (
 
 type imageConditionReason string
 
-const archMismatchReason = "InfraEnvArchMismatch"
+const (
+	archMismatchReason = "InfraEnvArchMismatch"
+	rootFSURLKernelKey = "coreos.live.rootfs_url"
+)
 
 // PreprovisioningImage reconciles a AgentClusterInstall object
 type PreprovisioningImageReconciler struct {
@@ -179,6 +184,20 @@ func (r *PreprovisioningImageReconciler) getIronicIgnitionConfig(log logrus.Fiel
 	return string(config), err
 }
 
+func setRootFSKernelParam(params, rootfsURL string) string {
+	params = removeRootFSKernelParam(params)
+	if len(params) > 0 {
+		return fmt.Sprintf("%s %s=%s", params, rootFSURLKernelKey, rootfsURL)
+	}
+
+	return fmt.Sprintf("%s=%s", rootFSURLKernelKey, rootfsURL)
+}
+
+func removeRootFSKernelParam(params string) string {
+	rootFSRegex := regexp.MustCompile(fmt.Sprintf("%s=\\S*\\s?", rootFSURLKernelKey))
+	return strings.TrimSpace(rootFSRegex.ReplaceAllLiteralString(params, ""))
+}
+
 func (r *PreprovisioningImageReconciler) setImage(image *metal3_v1alpha1.PreprovisioningImage, infraEnv aiv1beta1.InfraEnv) error {
 	r.Log.Infof("Updating PreprovisioningImage ImageUrl to: %s", infraEnv.Status.ISODownloadURL)
 	image.Status.Architecture = infraEnv.Spec.CpuArchitecture
@@ -187,13 +206,13 @@ func (r *PreprovisioningImageReconciler) setImage(image *metal3_v1alpha1.Preprov
 		image.Status.Format = metal3_v1alpha1.ImageFormatISO
 		image.Status.ImageUrl = infraEnv.Status.ISODownloadURL
 		image.Status.KernelUrl = ""
-		image.Status.ExtraKernelParams = ""
+		image.Status.ExtraKernelParams = removeRootFSKernelParam(image.Status.ExtraKernelParams)
 	} else if funk.Contains(image.Spec.AcceptFormats, metal3_v1alpha1.ImageFormatInitRD) {
 		r.Log.Infof("Updating PreprovisioningImage ImageUrl with InitRD artifacts")
 		image.Status.Format = metal3_v1alpha1.ImageFormatInitRD
 		image.Status.ImageUrl = infraEnv.Status.BootArtifacts.InitrdURL
 		image.Status.KernelUrl = infraEnv.Status.BootArtifacts.KernelURL
-		image.Status.ExtraKernelParams = fmt.Sprintf("coreos.live.rootfs_url=%s", infraEnv.Status.BootArtifacts.RootfsURL)
+		image.Status.ExtraKernelParams = setRootFSKernelParam(image.Status.ExtraKernelParams, infraEnv.Status.BootArtifacts.RootfsURL)
 	}
 	imageCreatedCondition := conditionsv1.FindStatusCondition(infraEnv.Status.Conditions, aiv1beta1.ImageCreatedCondition)
 	reason := imageConditionReason(imageCreatedCondition.Reason)

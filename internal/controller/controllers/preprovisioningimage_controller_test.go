@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	metal3_v1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	aiv1beta1 "github.com/openshift/assisted-service/api/v1beta1"
 	"github.com/openshift/assisted-service/internal/bminventory"
@@ -517,3 +518,49 @@ func validateStatus(imageURL string, ExpectedImageReadyCondition *conditionsv1.C
 		meta.FindStatusCondition(ppi.Status.Conditions, string(metal3_v1alpha1.ConditionImageError)).Status)))
 
 }
+
+var _ = DescribeTable("removeRootFSKernelParam",
+	func(initial, expected string) { Expect(removeRootFSKernelParam(initial)).To(Equal(expected)) },
+	Entry("returns empty params when given empty params",
+		"",
+		"",
+	),
+	Entry("returns an empty string when only rootfs url is present",
+		"coreos.live.rootfs_url=http://example.com/rootfs.img",
+		"",
+	),
+	Entry("removes correctly when rootfs is first",
+		"coreos.live.rootfs_url=http://example.com/rootfs.img console=ttyS1,115200n8 rd.break",
+		"console=ttyS1,115200n8 rd.break",
+	),
+	Entry("removes correctly when rootfs is in the middle",
+		"console=ttyS1,115200n8 coreos.live.rootfs_url=http://example.com/rootfs.img rd.break",
+		"console=ttyS1,115200n8 rd.break",
+	),
+	Entry("removes correctly when rootfs is last",
+		"console=ttyS1,115200n8 rd.break coreos.live.rootfs_url=http://example.com/rootfs.img",
+		"console=ttyS1,115200n8 rd.break",
+	),
+)
+
+var _ = DescribeTable("setRootFSKernelParam",
+	func(initial, expected string) {
+		Expect(setRootFSKernelParam(initial, "http://example.com/rootfs.img")).To(Equal(expected))
+	},
+	Entry("sets the param when given an empty string",
+		"",
+		"coreos.live.rootfs_url=http://example.com/rootfs.img",
+	),
+	Entry("sets the param when other params are present",
+		"console=ttyS1,115200n8 rd.break",
+		"console=ttyS1,115200n8 rd.break coreos.live.rootfs_url=http://example.com/rootfs.img",
+	),
+	Entry("updates the value when only the rootfs is present",
+		"coreos.live.rootfs_url=http://example.com/wat",
+		"coreos.live.rootfs_url=http://example.com/rootfs.img",
+	),
+	Entry("updates the value when many params are present",
+		"console=ttyS1,115200n8 coreos.live.rootfs_url=http://example.com/wat rd.break",
+		"console=ttyS1,115200n8 rd.break coreos.live.rootfs_url=http://example.com/rootfs.img",
+	),
+)
