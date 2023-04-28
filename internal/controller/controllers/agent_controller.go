@@ -257,11 +257,11 @@ func deleteBMHForMachine(ctx context.Context, spokeClient client.Client, machine
 // Failure in any part of this function may indicate that the entire cluster is being removed or
 // that the cluster is in a bad state, both of which are valid. Because of this, it deletes these
 // objects on a best effort basis as this shouldn't stall reconciliation or be retried.
-func (r *AgentReconciler) removeSpokeResources(ctx context.Context, log logrus.FieldLogger, agent *aiv1beta1.Agent) {
+func (r *AgentReconciler) removeSpokeResources(ctx context.Context, log logrus.FieldLogger, agent *aiv1beta1.Agent) error {
 	spokeClient, err := r.spokeKubeClient(ctx, agent.Spec.ClusterDeploymentName)
 	if err != nil {
 		log.WithError(err).Error("failed to create spoke client, node will not be removed")
-		return
+		return err
 	}
 
 	nodeName := getAgentHostname(agent)
@@ -270,28 +270,33 @@ func (r *AgentReconciler) removeSpokeResources(ctx context.Context, log logrus.F
 	nodeKey := client.ObjectKey{Name: nodeName}
 	node := &corev1.Node{}
 	if err = spokeClient.Get(ctx, nodeKey, node); err != nil {
+		if k8serrors.IsNotFound(err) {
+			log.Warn("node not found")
+			return nil
+		}
 		log.WithError(err).Error("failed to get node from spoke cluster")
-		return
+		return err
 	}
 
-	deleteNode := func() {
-		if deferErr := spokeClient.Delete(ctx, node); deferErr != nil {
-			log.WithError(deferErr).Error("failed to delete node from spoke cluster")
+	deleteNode := func() error {
+		nodeErr := client.IgnoreNotFound(spokeClient.Delete(ctx, node))
+		if nodeErr == nil {
+			log.Info("spoke node deleted")
+		} else {
+			log.WithError(nodeErr).Error("failed to delete node")
 		}
-		log.Info("spoke node deleted")
+		return err
 	}
 
 	machineNSName, haveMachine := node.GetAnnotations()["machine.openshift.io/machine"]
 	if !haveMachine {
-		deleteNode()
-		return
+		return deleteNode()
 	}
 
 	machineNamespace, machineName, err := splitNamespacedName(machineNSName)
 	if err != nil {
 		log.WithError(err).Error("failed to parse machine name from node annotation")
-		deleteNode()
-		return
+		return deleteNode()
 	}
 
 	log = log.WithFields(logrus.Fields{
@@ -302,10 +307,15 @@ func (r *AgentReconciler) removeSpokeResources(ctx context.Context, log logrus.F
 	machine := &machinev1beta1.Machine{}
 	machineKey := client.ObjectKey{Namespace: machineNamespace, Name: machineName}
 	if err = spokeClient.Get(ctx, machineKey, machine); err != nil {
+		if k8serrors.IsNotFound(err) {
+			log.Warn("machine not found")
+			return deleteNode()
+		}
 		log.WithError(err).Error("failed to get machine")
-		deleteNode()
-		return
+		return err
 	}
+
+	// handle not found stuff starting here
 
 	deleteMachine := func(deleteBMH bool) {
 		if deleteBMH {
@@ -389,7 +399,18 @@ func (r *AgentReconciler) handleAgentFinalizer(ctx context.Context, log logrus.F
 					log.Info("waiting for BMH to be deleted")
 					return &ctrl.Result{RequeueAfter: defaultRequeueAfterOnError}, err
 				}
-				r.removeSpokeResources(ctx, log, agent)
+
+				// only remove the spoke resources if the entire cluster isn't being deleted
+				clusterExists, err := r.clusterExists(ctx, agent)
+				if err != nil {
+					log.WithError(err).Errorf("failed to check cluster deployment presence")
+					return &ctrl.Result{}, err
+				}
+				if clusterExists {
+					if err := r.removeSpokeResources(ctx, log, agent); err != nil {
+						return &ctrl.Result{}, err
+					}
+				}
 			}
 			// deletion finalizer found, deregister the backend host and delete the agent
 			if reply, err := r.deregisterHostIfNeeded(ctx, log, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}); err != nil {
@@ -508,6 +529,19 @@ func (r *AgentReconciler) bmhExists(ctx context.Context, agent *aiv1beta1.Agent)
 	}
 
 	return true, nil
+}
+
+func (r *AgentReconciler) clusterExists(ctx context.Context, agent *aiv1beta1.Agent) (bool, error) {
+	cdKey := types.NamespacedName{
+		Name:      agent.Spec.ClusterDeploymentName.Name,
+		Namespace: agent.Spec.ClusterDeploymentName.Namespace,
+	}
+	cd := &hivev1.ClusterDeployment{}
+	if err := r.Client.Get(ctx, cdKey, cd); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+
+	return cd.DeletionTimestamp.IsZero(), nil
 }
 
 func (r *AgentReconciler) shouldReclaimOnUnbind(ctx context.Context, agent *aiv1beta1.Agent, clusterRef *aiv1beta1.ClusterReference) bool {

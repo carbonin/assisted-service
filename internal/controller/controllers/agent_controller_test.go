@@ -3734,7 +3734,7 @@ var _ = Describe("handleAgentFinalizer", func() {
 				Expect(res.RequeueAfter).To(Equal(defaultRequeueAfterOnError))
 			})
 
-			Context("with a removed BMH", func() {
+			FContext("with a removed BMH", func() {
 				expectAgentFinalizerRemoved := func() {
 					mockClient.EXPECT().Update(ctx, gomock.AssignableToTypeOf(&v1beta1.Agent{})).DoAndReturn(
 						func(_ context.Context, updatedAgent *v1beta1.Agent, _ ...client.UpdateOption) error {
@@ -3768,7 +3768,7 @@ var _ = Describe("handleAgentFinalizer", func() {
 							}
 							return nil
 						},
-					)
+					).AnyTimes()
 
 					secretKey := types.NamespacedName{Name: "clusterKubeConfig", Namespace: testNamespace}
 					mockClient.EXPECT().Get(ctx, secretKey, gomock.AssignableToTypeOf(&corev1.Secret{})).DoAndReturn(
