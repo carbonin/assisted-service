@@ -123,6 +123,7 @@ type Config struct {
 	ISOImageType                        string            `envconfig:"ISO_IMAGE_TYPE" default:"full-iso"`
 	IPv6Support                         bool              `envconfig:"IPV6_SUPPORT" default:"true"`
 	DiskEncryptionSupport               bool              `envconfig:"DISK_ENCRYPTION_SUPPORT" default:"true"`
+	CreateNewImageURLOnInternalChanges  bool
 
 	// InfraEnv ID for the ephemeral installer. Should not be set explicitly.Ephemeral (agent) installer sets this env var
 	InfraEnvID strfmt.UUID `envconfig:"INFRA_ENV_ID" default:""`
@@ -1079,7 +1080,7 @@ func (b *bareMetalInventory) updateExternalImageInfo(ctx context.Context, infraE
 		arch = *osImage.CPUArchitecture
 	}
 
-	if string(imageType) != prevType || version != prevVersion || arch != prevArch || !infraEnv.Generated {
+	if string(imageType) != prevType || version != prevVersion || arch != prevArch || (!infraEnv.Generated && b.CreateNewImageURLOnInternalChanges) {
 		var expiresAt *strfmt.DateTime
 		infraEnv.DownloadURL, expiresAt, err = b.generateImageDownloadURL(ctx, infraEnv.ID.String(), string(imageType), version, arch, infraEnv.ImageTokenKey)
 		if err != nil {

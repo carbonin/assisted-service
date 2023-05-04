@@ -41,9 +41,8 @@ var _ = Describe("bmoUtils", func() {
 		DescribeTable("returns true with",
 			func(version string) {
 				bmoUtils := &bmoUtils{
-					c:              c,
-					log:            log,
-					kubeAPIEnabled: true,
+					c:   c,
+					log: log,
 				}
 				clusterOperator := CreateCBO(version)
 				Expect(c.Create(context.Background(), clusterOperator)).To(BeNil())
@@ -56,9 +55,8 @@ var _ = Describe("bmoUtils", func() {
 		)
 		It("returns false when version is lower than minimal version", func() {
 			bmoUtils := &bmoUtils{
-				c:              c,
-				log:            log,
-				kubeAPIEnabled: true,
+				c:   c,
+				log: log,
 			}
 			clusterOperator := CreateCBO("4.10.0")
 			Expect(c.Create(context.Background(), clusterOperator)).To(BeNil())
@@ -66,9 +64,8 @@ var _ = Describe("bmoUtils", func() {
 		})
 		It("returns false when it fails to find cluster version", func() {
 			bmoUtils := &bmoUtils{
-				c:              c,
-				log:            log,
-				kubeAPIEnabled: true,
+				c:   c,
+				log: log,
 			}
 			Expect(bmoUtils.ConvergedFlowAvailable()).Should(Equal(false))
 		})
@@ -76,9 +73,8 @@ var _ = Describe("bmoUtils", func() {
 	Context("Get GetIronicServiceURL", func() {
 		It("success", func() {
 			bmoUtils := &bmoUtils{
-				c:              c,
-				log:            log,
-				kubeAPIEnabled: true,
+				c:   c,
+				log: log,
 			}
 			ironicIP := "10.10.10.10"
 			provisioningInfo := &metal3iov1alpha1.Provisioning{
@@ -99,9 +95,8 @@ var _ = Describe("bmoUtils", func() {
 		})
 		It("failed to determine inspector URL", func() {
 			bmoUtils := &bmoUtils{
-				c:              c,
-				log:            log,
-				kubeAPIEnabled: true,
+				c:   c,
+				log: log,
 			}
 			provisioningInfo := &metal3iov1alpha1.Provisioning{
 				ObjectMeta: metav1.ObjectMeta{

@@ -8648,6 +8648,7 @@ var _ = Describe("infraEnvs", func() {
 						nil,
 					)
 					Expect(err).ToNot(HaveOccurred())
+					fmt.Printf("got new url: %s\n", response.DownloadURL)
 					return response.DownloadURL
 				}
 

@@ -459,6 +459,8 @@ func main() {
 	serverInfo := servers.New(Options.HTTPListenPort, swag.StringValue(port), Options.HTTPSKeyFile, Options.HTTPSCertFile)
 	generateInsecureIPXEURLs := serverInfo.HTTP != nil
 
+	Options.BMConfig.CreateNewImageURLOnInternalChanges = !useConvergedFlow(getBMOUtils(ctrlMgr, log))
+
 	bm := bminventory.NewBareMetalInventory(db, notificationStream, log.WithField("pkg", "Inventory"), hostApi, clusterApi, infraEnvApi, Options.BMConfig,
 		generator, eventsHandler, objectHandler, metricsManager, usageManager, operatorsManager, authHandler, authzHandler, ocpClient, ocmClient,
 		lead, pullSecretValidator, versionHandler, osImages, crdUtils, ignitionBuilder, hwValidator, dnsApi, installConfigBuilder, staticNetworkConfig,
@@ -534,15 +536,8 @@ func main() {
 
 	go func() {
 		if Options.EnableKubeAPI {
-			clientConfig := ctrl.GetConfigOrDie()
-			osClient := osclientset.NewForConfigOrDie(clientConfig)
-			kubeClient := kubernetes.NewForConfigOrDie(clientConfig)
-			bmoUtils := controllers.NewBMOUtils(ctrlMgr.GetAPIReader(),
-				osClient,
-				kubeClient,
-				log.WithField("pkg", "baremetal_operator_utils"),
-				Options.EnableKubeAPI)
-			useConvergedFlow := Options.AllowConvergedFlow && bmoUtils.ConvergedFlowAvailable()
+			bmoUtils := getBMOUtils(ctrlMgr, log)
+			useConvergedFlow := useConvergedFlow(bmoUtils)
 
 			c := ctrlMgr.GetClient()
 			r := ctrlMgr.GetAPIReader()
@@ -868,4 +863,24 @@ func getNotificationStream(log *logrus.Logger) *stream.NotificationStream {
 		log.WithError(err).Fatal("kafka writer failed to initialize")
 	}
 	return stream.NewNotificationStream(writer, log, metadata)
+}
+
+func getBMOUtils(mgr manager.Manager, log logrus.FieldLogger) controllers.BMOUtils {
+	if !Options.EnableKubeAPI {
+		return nil
+	}
+	clientConfig := ctrl.GetConfigOrDie()
+	osClient := osclientset.NewForConfigOrDie(clientConfig)
+	kubeClient := kubernetes.NewForConfigOrDie(clientConfig)
+	return controllers.NewBMOUtils(mgr.GetAPIReader(),
+		osClient,
+		kubeClient,
+		log.WithField("pkg", "baremetal_operator_utils"))
+}
+
+func useConvergedFlow(bmoUtils controllers.BMOUtils) bool {
+	if bmoUtils == nil {
+		return false
+	}
+	return Options.EnableKubeAPI && Options.AllowConvergedFlow && bmoUtils.ConvergedFlowAvailable()
 }

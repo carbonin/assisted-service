@@ -27,15 +27,14 @@ type BMOUtils interface {
 
 type bmoUtils struct {
 	// The methods of this receiver get called once before the cache is initialized hence we check the API directly
-	c              client.Reader
-	osClient       *osclientset.Clientset
-	kubeClient     *kubernetes.Clientset
-	log            logrus.FieldLogger
-	kubeAPIEnabled bool
+	c          client.Reader
+	osClient   *osclientset.Clientset
+	kubeClient *kubernetes.Clientset
+	log        logrus.FieldLogger
 }
 
-func NewBMOUtils(client client.Reader, osClient *osclientset.Clientset, kubeClient *kubernetes.Clientset, log logrus.FieldLogger, kubeAPIEnabled bool) BMOUtils {
-	return &bmoUtils{client, osClient, kubeClient, log, kubeAPIEnabled}
+func NewBMOUtils(client client.Reader, osClient *osclientset.Clientset, kubeClient *kubernetes.Clientset, log logrus.FieldLogger) BMOUtils {
+	return &bmoUtils{client, osClient, kubeClient, log}
 }
 
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get;list;watch
