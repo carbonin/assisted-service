@@ -393,6 +393,32 @@ func executeWithPullSecretFile(log logrus.FieldLogger, executer executer.Execute
 	}
 }
 
+// combinedCAFile creates a temp directory containing a combined CA file which includes the host default CA bundle
+// as well as the mirror registry certs provided by the user. The directory of the file returned may be used
+// if the command requires a directory rather than a cert file. It is an error to call this function if mirror registry
+// certs are not defined.
+func (r *release) combinedCAFile(log logrus.FieldLogger) (string, error) {
+	dir, err := os.MkdirTemp("", "oc-release-combined-ca-file")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	userCABundle, err := r.mirrorRegistriesBuilder.GetMirrorCA()
+	if err != nil {
+		os.RemoveAll(dir)
+		return "", fmt.Errorf("failed to read mirror CA bundle: %w", err)
+	}
+
+	defaultCABundle, err := os.ReadFile("/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+	if err != nil {
+		log.Warn("failed to red default TLS CA bundle, using only user-provided certs")
+		defaultCABundle = []byte{}
+	}
+
+	finalCABundle := append(userCABundle, '\n', defaultCABundle...)
+	//os.WriteFile(
+}
+
 // Create a temporary file containing the ImageContentPolicySources
 func (r *release) getIcspFileFromRegistriesConfig(log logrus.FieldLogger) (string, error) {
 
