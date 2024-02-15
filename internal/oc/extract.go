@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/openshift/assisted-service/pkg/executer"
 	"github.com/sirupsen/logrus"
@@ -46,8 +47,16 @@ func (r *extract) Extract(log logrus.FieldLogger, imageIndexPath string, openshi
 		return "", err
 	}
 
-	cmd := fmt.Sprintf(templateImageExtract, imageIndexPath, openshiftVersion, filePath, file.Name(), insecure)
-	_, err = execute(log, r.executer, pullSecret, cmd, ocAuthArgument)
+	args := []string{
+		"image",
+		"extract",
+		fmt.Sprintf("%s:v%s", imageIndexPath, openshiftVersion),
+		"--path",
+		fmt.Sprintf("%s:%s", filePath, file.Name()),
+		"--insecure",
+		strconv.FormatBool(insecure),
+	}
+	_, err = executeWithPullSecretFile(log, r.executer, pullSecret, ocAuthArgument, "oc", args...)
 	if err != nil {
 		return "", err
 	}

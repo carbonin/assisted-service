@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -69,19 +70,7 @@ func NewRelease(executer executer.Executer, config Config, mirrorRegistriesBuild
 		mirrorRegistriesBuilder: mirrorRegistriesBuilder}
 }
 
-const (
-	templateGetImage              = "oc adm release info --image-for=%s --insecure=%t %s"
-	templateGetImageWithIcsp      = "oc adm release info --image-for=%s --insecure=%t --icsp-file=%s %s"
-	templateGetVersion            = "oc adm release info -o template --template '{{.metadata.version}}' --insecure=%t %s"
-	templateGetVersionWithIcsp    = "oc adm release info -o template --template '{{.metadata.version}}' --insecure=%t --icsp-file=%s %s"
-	templateExtract               = "oc adm release extract --command=%s --to=%s --insecure=%t %s"
-	templateExtractWithIcsp       = "oc adm release extract --command=%s --to=%s --insecure=%t --icsp-file=%s %s"
-	templateImageInfo             = "oc image info --output json %s"
-	templateImageInfoWithIcsp     = "oc image info --output json --icsp-file=%s %s"
-	templateSkopeoDetectMultiarch = "skopeo inspect --raw --no-tags docker://%s"
-	ocAuthArgument                = " --registry-config="
-	skopeoAuthArgument            = " --authfile "
-)
+const ocAuthArgument = "--registry-config"
 
 // GetMCOImage gets mcoImage url from the releaseImageMirror if provided.
 // Else gets it from the source releaseImage
@@ -195,28 +184,25 @@ func (r *release) GetReleaseArchitecture(log logrus.FieldLogger, releaseImage st
 	}
 	defer removeIcspFile(icspFile)
 
-	var cmd string
-	if icspFile == "" {
-		cmd = fmt.Sprintf(templateImageInfo, image)
-	} else {
-		cmd = fmt.Sprintf(templateImageInfoWithIcsp, icspFile, image)
+	args := []string{"image", "info", "--output", "json"}
+	if icspFile != "" {
+		args = append(args, fmt.Sprintf("--icsp-file=%s", icspFile))
 	}
+	args = append(args, image)
 
-	cmdMultiarch := fmt.Sprintf(templateSkopeoDetectMultiarch, image)
-
-	imageInfoStr, err := execute(log, r.executer, pullSecret, cmd, ocAuthArgument)
-	if err != nil {
+	imageInfoStr, ocError := executeWithPullSecretFile(log, r.executer, pullSecret, ocAuthArgument, "oc", args...)
+	if ocError != nil {
 		// TODO(WRKLDS-222) At this moment we don't have a better way to detect if the release image is a multiarch
 		//                  image. Introducing skopeo as an additional dependency, to be able to manually parse
 		//                  the manifest. https://bugzilla.redhat.com/show_bug.cgi?id=2111537 tracks the missing
 		//                  feature in oc cli.
-		skopeoImageRaw, err2 := execute(log, r.executer, pullSecret, cmdMultiarch, skopeoAuthArgument)
-		if err2 != nil {
-			return nil, errors.Errorf("failed to inspect image, oc: %v, skopeo: %v", err, err2)
+		skopeoImageRaw, skopeoError := executeWithPullSecretFile(log, r.executer, pullSecret, "--authfile", "skopeo", "inspect", "--raw", "--no-tags", fmt.Sprintf("docker://%s", image))
+		if skopeoError != nil {
+			return nil, errors.Errorf("failed to inspect image, oc: %v, skopeo: %v", err, skopeoError)
 		}
 
 		var multiarchContent []string
-		_, err2 = jsonparser.ArrayEach([]byte(skopeoImageRaw), func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+		_, err2 := jsonparser.ArrayEach([]byte(skopeoImageRaw), func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 			res, _ := jsonparser.GetString(value, "platform", "architecture")
 
 			// Convert architecture naming to supported values
@@ -277,15 +263,14 @@ func (r *release) getImageFromRelease(log logrus.FieldLogger, imageName, release
 		return actualImageValue.value, nil
 	}
 
-	var cmd string
-	if icspFile == "" {
-		cmd = fmt.Sprintf(templateGetImage, imageName, insecure, releaseImage)
-	} else {
-		cmd = fmt.Sprintf(templateGetImageWithIcsp, imageName, insecure, icspFile, releaseImage)
+	args := []string{"adm", "release", "info", "--image-for=" + imageName, "--insecure=" + strconv.FormatBool(insecure)}
+	if icspFile != "" {
+		args = append(args, "--icsp-file="+icspFile)
 	}
+	args = append(args, releaseImage)
 
-	log.Infof("Fetching image from OCP release (%s)", cmd)
-	image, err := execute(log, r.executer, pullSecret, cmd, ocAuthArgument)
+	log.Infof("Fetching image from OCP release (oc %s)", strings.Join(args, " "))
+	image, err := executeWithPullSecretFile(log, r.executer, pullSecret, ocAuthArgument, "oc", args...)
 	if err != nil {
 		return "", err
 	}
@@ -297,13 +282,13 @@ func (r *release) getImageFromRelease(log logrus.FieldLogger, imageName, release
 }
 
 func (r *release) getOpenshiftVersionFromRelease(log logrus.FieldLogger, releaseImage, pullSecret, icspFile string, insecure bool) (string, error) {
-	var cmd string
-	if icspFile == "" {
-		cmd = fmt.Sprintf(templateGetVersion, insecure, releaseImage)
-	} else {
-		cmd = fmt.Sprintf(templateGetVersionWithIcsp, insecure, icspFile, releaseImage)
+	args := []string{"adm", "release", "info", "-o", "template", "--template", "'{{.metadata.version}}'", "--insecure=" + strconv.FormatBool(insecure)}
+	if icspFile != "" {
+		args = append(args, "--icsp-file", icspFile)
 	}
-	version, err := execute(log, r.executer, pullSecret, cmd, ocAuthArgument)
+	args = append(args, releaseImage)
+
+	version, err := executeWithPullSecretFile(log, r.executer, pullSecret, ocAuthArgument, "oc", args...)
 	if err != nil {
 		return "", err
 	}
@@ -360,14 +345,18 @@ func (r *release) extractFromRelease(log logrus.FieldLogger, releaseImage, cache
 		return "", err
 	}
 
-	var cmd string
-	if icspFile == "" {
-		cmd = fmt.Sprintf(templateExtract, binary, workdir, insecure, releaseImage)
-	} else {
-		cmd = fmt.Sprintf(templateExtractWithIcsp, binary, workdir, insecure, icspFile, releaseImage)
+	args := []string{"adm", "release", "extract", "--command=" + binary, "--to=" + workdir, "--insecure=" + strconv.FormatBool(insecure)}
+	if icspFile != "" {
+		args = append(args, "--icsp-file="+icspFile)
+	}
+	args = append(args, releaseImage)
+
+	retryFunc := func() error {
+		_, err := executeWithPullSecretFile(log, r.executer, pullSecret, ocAuthArgument, "oc", args...)
+		return err
 	}
 
-	_, err = retry.Do(r.config.MaxTries, r.config.RetryDelay, execute, log, r.executer, pullSecret, cmd, ocAuthArgument)
+	_, err = retry.Do(r.config.MaxTries, r.config.RetryDelay, retryFunc)
 	if err != nil {
 		return "", err
 	}
@@ -376,7 +365,7 @@ func (r *release) extractFromRelease(log logrus.FieldLogger, releaseImage, cache
 	return path, nil
 }
 
-func execute(log logrus.FieldLogger, executer executer.Executer, pullSecret string, command string, authArgument string) (string, error) {
+func executeWithPullSecretFile(log logrus.FieldLogger, executer executer.Executer, pullSecret string, pullSecretFileArg string, command string, args ...string) (string, error) {
 	// write pull secret to a temp file
 	ps, err := executer.TempFile("", "registry-config")
 	if err != nil {
@@ -392,15 +381,13 @@ func execute(log logrus.FieldLogger, executer executer.Executer, pullSecret stri
 	}
 	// flush the buffer to ensure the file can be read
 	ps.Close()
-	executeCommand := command[:] + authArgument + ps.Name()
-	args := strings.Split(executeCommand, " ")
 
-	stdout, stderr, exitCode := executer.Execute(args[0], args[1:]...)
-
+	args = append(args, fmt.Sprintf("%s=%s", pullSecretFileArg, ps.Name()))
+	stdout, stderr, exitCode := executer.Execute(command, args...)
 	if exitCode == 0 {
 		return strings.TrimSpace(stdout), nil
 	} else {
-		err = fmt.Errorf("command '%s' exited with non-zero exit code %d: %s\n%s", executeCommand, exitCode, stdout, stderr)
+		err := fmt.Errorf("command '%s' exited with non-zero exit code %d: %s\n%s", append([]string{command}, args...), exitCode, stdout, stderr)
 		log.Warn(err)
 		return "", err
 	}

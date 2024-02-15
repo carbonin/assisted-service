@@ -33,6 +33,18 @@ var (
 //go:embed test_skopeo_multiarch_image_output
 var test_skopeo_multiarch_image_output string
 
+const (
+	templateGetImage              = "oc adm release info --image-for=%s --insecure=%t %s"
+	templateGetImageWithIcsp      = "oc adm release info --image-for=%s --insecure=%t --icsp-file=%s %s"
+	templateGetVersion            = "oc adm release info -o template --template '{{.metadata.version}}' --insecure=%t %s"
+	templateGetVersionWithIcsp    = "oc adm release info -o template --template '{{.metadata.version}}' --insecure=%t --icsp-file=%s %s"
+	templateExtract               = "oc adm release extract --command=%s --to=%s --insecure=%t %s"
+	templateExtractWithIcsp       = "oc adm release extract --command=%s --to=%s --insecure=%t --icsp-file=%s %s"
+	templateImageInfo             = "oc image info --output json %s"
+	templateImageInfoWithIcsp     = "oc image info --output json --icsp-file=%s %s"
+	templateSkopeoDetectMultiarch = "skopeo inspect --raw --no-tags docker://%s"
+)
+
 var _ = Describe("oc", func() {
 	var (
 		oc           Release
@@ -290,7 +302,7 @@ var _ = Describe("oc", func() {
 		Context("for multi-arch release image", func() {
 			It("fetch cpu architecture", func() {
 				command := fmt.Sprintf(templateImageInfo+" --registry-config=%s", releaseImage, tempFilePath)
-				command2 := fmt.Sprintf(templateSkopeoDetectMultiarch+" --authfile %s", releaseImage, tempFilePath)
+				command2 := fmt.Sprintf(templateSkopeoDetectMultiarch+" --authfile=%s", releaseImage, tempFilePath)
 				args := splitStringToInterfacesArray(command)
 				args2 := splitStringToInterfacesArray(command2)
 				mockExecuter.EXPECT().Execute(args[0], args[1:]...).Return("", "the image is a manifest list", 1).Times(1)
@@ -303,7 +315,7 @@ var _ = Describe("oc", func() {
 
 			It("fail with malformed manifests - not a list", func() {
 				command := fmt.Sprintf(templateImageInfo+" --registry-config=%s", releaseImage, tempFilePath)
-				command2 := fmt.Sprintf(templateSkopeoDetectMultiarch+" --authfile %s", releaseImage, tempFilePath)
+				command2 := fmt.Sprintf(templateSkopeoDetectMultiarch+" --authfile=%s", releaseImage, tempFilePath)
 				args := splitStringToInterfacesArray(command)
 				args2 := splitStringToInterfacesArray(command2)
 				imageInfoStr := fmt.Sprintf("{ \"manifests\": { \"platform\": { \"not-an-architecture\": \"%s\" }}}", common.TestDefaultConfig.CPUArchitecture)
@@ -318,7 +330,7 @@ var _ = Describe("oc", func() {
 
 			It("fail with malformed manifests - no architecture", func() {
 				command := fmt.Sprintf(templateImageInfo+" --registry-config=%s", releaseImage, tempFilePath)
-				command2 := fmt.Sprintf(templateSkopeoDetectMultiarch+" --authfile %s", releaseImage, tempFilePath)
+				command2 := fmt.Sprintf(templateSkopeoDetectMultiarch+" --authfile=%s", releaseImage, tempFilePath)
 				args := splitStringToInterfacesArray(command)
 				args2 := splitStringToInterfacesArray(command2)
 				imageInfoStr := fmt.Sprintf("{ \"manifests\": [{ \"platform\": { \"not-an-architecture\": \"%s\" }}]}", common.TestDefaultConfig.CPUArchitecture)
@@ -333,7 +345,7 @@ var _ = Describe("oc", func() {
 
 			It("fail with malformed manifests - empty architecture", func() {
 				command := fmt.Sprintf(templateImageInfo+" --registry-config=%s", releaseImage, tempFilePath)
-				command2 := fmt.Sprintf(templateSkopeoDetectMultiarch+" --authfile %s", releaseImage, tempFilePath)
+				command2 := fmt.Sprintf(templateSkopeoDetectMultiarch+" --authfile=%s", releaseImage, tempFilePath)
 				args := splitStringToInterfacesArray(command)
 				args2 := splitStringToInterfacesArray(command2)
 				imageInfoStr := "{ \"manifests\": [{ \"platform\": { \"architecture\": \"\" }}]}"
@@ -349,7 +361,7 @@ var _ = Describe("oc", func() {
 
 		It("broken release image", func() {
 			command := fmt.Sprintf(templateImageInfo+" --registry-config=%s", releaseImage, tempFilePath)
-			command2 := fmt.Sprintf(templateSkopeoDetectMultiarch+" --authfile %s", releaseImage, tempFilePath)
+			command2 := fmt.Sprintf(templateSkopeoDetectMultiarch+" --authfile=%s", releaseImage, tempFilePath)
 			args := splitStringToInterfacesArray(command)
 			args2 := splitStringToInterfacesArray(command2)
 			mockExecuter.EXPECT().Execute(args[0], args[1:]...).Return("", "that's not even an image", 1).Times(1)
