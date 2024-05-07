@@ -27,7 +27,6 @@ import (
 	"github.com/openshift/assisted-service/internal/manifests"
 	"github.com/openshift/assisted-service/internal/network"
 	"github.com/openshift/assisted-service/internal/oc"
-	"github.com/openshift/assisted-service/internal/operators"
 	"github.com/openshift/assisted-service/internal/provider/registry"
 	"github.com/openshift/assisted-service/models"
 	"github.com/openshift/assisted-service/pkg/auth"
@@ -90,7 +89,6 @@ type installerGenerator struct {
 	encodedDhcpFileContents       string
 	s3Client                      s3wrapper.API
 	enableMetal3Provisioning      bool
-	operatorsApi                  operators.API
 	installInvoker                string
 	providerRegistry              registry.ProviderRegistry
 	installerReleaseImageOverride string
@@ -110,8 +108,8 @@ var fileNames = [...]string{
 
 // NewGenerator returns a generator that can generate ignition files
 func NewGenerator(serviceBaseURL string, workDir string, installerDir string, cluster *common.Cluster, releaseImage string, releaseImageMirror string,
-	serviceCACert string, installInvoker string, s3Client s3wrapper.API, log logrus.FieldLogger, operatorsApi operators.API,
-	providerRegistry registry.ProviderRegistry, installerReleaseImageOverride, clusterTLSCertOverrideDir string, storageCapacityLimit int64) Generator {
+	serviceCACert string, installInvoker string, s3Client s3wrapper.API, log logrus.FieldLogger, providerRegistry registry.ProviderRegistry,
+	installerReleaseImageOverride, clusterTLSCertOverrideDir string, storageCapacityLimit int64) Generator {
 	return &installerGenerator{
 		cluster:                       cluster,
 		log:                           log,
@@ -123,7 +121,6 @@ func NewGenerator(serviceBaseURL string, workDir string, installerDir string, cl
 		serviceCACert:                 serviceCACert,
 		s3Client:                      s3Client,
 		enableMetal3Provisioning:      true,
-		operatorsApi:                  operatorsApi,
 		installInvoker:                installInvoker,
 		providerRegistry:              providerRegistry,
 		installerReleaseImageOverride: installerReleaseImageOverride,
