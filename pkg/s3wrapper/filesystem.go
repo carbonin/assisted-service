@@ -23,8 +23,8 @@ import (
 )
 
 type FSClient struct {
-	log     logrus.FieldLogger
-	basedir string
+	Log     logrus.FieldLogger
+	BaseDir string
 }
 
 var _ API = &FSClient{}
@@ -34,8 +34,8 @@ func NewFSClient(basedir string, logger logrus.FieldLogger, metricsAPI metrics.A
 		log:        logger,
 		metricsAPI: metricsAPI,
 		fsClient: FSClient{
-			log:     logger,
-			basedir: basedir,
+			Log:     logger,
+			BaseDir: basedir,
 		},
 		fsUsageThreshold:              fsThreshold,
 		timeFSUsageLog:                time.Now().Add(-1 * time.Hour),
@@ -53,8 +53,8 @@ func (f *FSClient) CreateBucket() error {
 }
 
 func (f *FSClient) Upload(ctx context.Context, data []byte, objectName string) error {
-	log := logutil.FromContext(ctx, f.log)
-	filePath := filepath.Join(f.basedir, objectName)
+	log := logutil.FromContext(ctx, f.Log)
+	filePath := filepath.Join(f.BaseDir, objectName)
 	if err := os.MkdirAll(path.Dir(filePath), 0755); err != nil {
 		err = errors.Wrapf(err, "Unable to create directory for file data %s", filePath)
 		log.Error(err)
@@ -70,7 +70,7 @@ func (f *FSClient) Upload(ctx context.Context, data []byte, objectName string) e
 }
 
 func (f *FSClient) UploadFile(ctx context.Context, filePath, objectName string) error {
-	log := logutil.FromContext(ctx, f.log)
+	log := logutil.FromContext(ctx, f.Log)
 	file, err := os.Open(filePath)
 	if err != nil {
 		err = errors.Wrapf(err, "Unable to open file %s for upload", filePath)
@@ -84,8 +84,8 @@ func (f *FSClient) UploadFile(ctx context.Context, filePath, objectName string) 
 }
 
 func (f *FSClient) UploadStream(ctx context.Context, reader io.Reader, objectName string) error {
-	log := logutil.FromContext(ctx, f.log)
-	filePath := filepath.Join(f.basedir, objectName)
+	log := logutil.FromContext(ctx, f.Log)
+	filePath := filepath.Join(f.BaseDir, objectName)
 	if err := os.MkdirAll(path.Dir(filePath), 0755); err != nil {
 		err = errors.Wrapf(err, "Unable to create directory for file data %s", filePath)
 		log.Error(err)
@@ -136,8 +136,8 @@ func (f *FSClient) UploadStream(ctx context.Context, reader io.Reader, objectNam
 }
 
 func (f *FSClient) Download(ctx context.Context, objectName string) (io.ReadCloser, int64, error) {
-	log := logutil.FromContext(ctx, f.log)
-	filePath := filepath.Join(f.basedir, objectName)
+	log := logutil.FromContext(ctx, f.Log)
+	filePath := filepath.Join(f.BaseDir, objectName)
 	fp, err := os.Open(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -158,7 +158,7 @@ func (f *FSClient) Download(ctx context.Context, objectName string) (io.ReadClos
 }
 
 func (f *FSClient) DoesObjectExist(ctx context.Context, objectName string) (bool, error) {
-	filePath := filepath.Join(f.basedir, objectName)
+	filePath := filepath.Join(f.BaseDir, objectName)
 	info, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -173,8 +173,8 @@ func (f *FSClient) DoesObjectExist(ctx context.Context, objectName string) (bool
 }
 
 func (f *FSClient) DeleteObject(ctx context.Context, objectName string) (bool, error) {
-	log := logutil.FromContext(ctx, f.log)
-	filePath := filepath.Join(f.basedir, objectName)
+	log := logutil.FromContext(ctx, f.Log)
+	filePath := filepath.Join(f.BaseDir, objectName)
 	err := os.Remove(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -187,7 +187,7 @@ func (f *FSClient) DeleteObject(ctx context.Context, objectName string) (bool, e
 }
 
 func (f *FSClient) GetObjectSizeBytes(ctx context.Context, objectName string) (int64, error) {
-	filePath := filepath.Join(f.basedir, objectName)
+	filePath := filepath.Join(f.BaseDir, objectName)
 	info, err := os.Stat(filePath)
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to get file %s", filePath)
@@ -200,8 +200,8 @@ func (f *FSClient) GeneratePresignedDownloadURL(ctx context.Context, objectName 
 }
 
 func (f *FSClient) UpdateObjectTimestamp(ctx context.Context, objectName string) (bool, error) {
-	log := logutil.FromContext(ctx, f.log)
-	filePath := filepath.Join(f.basedir, objectName)
+	log := logutil.FromContext(ctx, f.Log)
+	filePath := filepath.Join(f.BaseDir, objectName)
 	log.Infof("Updating timestamp of file %s", filePath)
 	now := time.Now()
 	if err := os.Chtimes(filePath, now, now); err != nil {
@@ -214,11 +214,11 @@ func (f *FSClient) UpdateObjectTimestamp(ctx context.Context, objectName string)
 }
 
 func (f *FSClient) ExpireObjects(ctx context.Context, prefix string, deleteTime time.Duration, callback func(ctx context.Context, log logrus.FieldLogger, objectName string)) {
-	log := logutil.FromContext(ctx, f.log)
+	log := logutil.FromContext(ctx, f.Log)
 	now := time.Now()
 
 	log.Info("Checking for expired files...")
-	err := filepath.Walk(f.basedir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(f.BaseDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -250,10 +250,10 @@ func (f *FSClient) handleFile(ctx context.Context, log logrus.FieldLogger, fileP
 }
 
 func (f *FSClient) ListObjectsByPrefix(ctx context.Context, prefix string) ([]string, error) {
-	log := logutil.FromContext(ctx, f.log)
+	log := logutil.FromContext(ctx, f.Log)
 	var matches []string
-	prefixWithBase := filepath.Join(f.basedir, prefix)
-	err := filepath.Walk(f.basedir, func(path string, info os.FileInfo, err error) error {
+	prefixWithBase := filepath.Join(f.BaseDir, prefix)
+	err := filepath.Walk(f.BaseDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -261,7 +261,7 @@ func (f *FSClient) ListObjectsByPrefix(ctx context.Context, prefix string) ([]st
 			return nil
 		}
 		if strings.HasPrefix(path, prefixWithBase) && !info.IsDir() {
-			relative, err := filepath.Rel(f.basedir, path)
+			relative, err := filepath.Rel(f.BaseDir, path)
 			if err != nil {
 				return err
 			}
@@ -314,11 +314,11 @@ func (d *FSClientDecorator) conditionalLog(msg string, logLevel logrus.Level, fi
 }
 
 func (d *FSClientDecorator) reportFilesystemUsageMetrics() {
-	basedir := d.fsClient.basedir
+	basedir := d.fsClient.BaseDir
 	stat := syscall.Statfs_t{}
 	err := syscall.Statfs(basedir, &stat)
 	if err != nil {
-		d.fsClient.log.WithError(err).Errorf("Failed to collect filesystem stats for %s", basedir)
+		d.fsClient.Log.WithError(err).Errorf("Failed to collect filesystem stats for %s", basedir)
 		return
 	}
 	percentage := (float64(stat.Blocks-stat.Bfree) / float64(stat.Blocks)) * 100
