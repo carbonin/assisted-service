@@ -346,7 +346,7 @@ func getDefaultClusterCreateParams() *models.ClusterCreateParams {
 func mockGenerateInstallConfigSuccess(mockGenerator *generator.MockInstallConfigGenerator, mockVersions *versions.MockHandler) {
 	if mockGenerator != nil {
 		mockVersions.EXPECT().GetReleaseImage(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(common.TestDefaultConfig.ReleaseImage, nil).Times(1)
-		mockGenerator.EXPECT().GenerateInstallConfig(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+		mockGenerator.EXPECT().GenerateInstallConfig(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	}
 }
 
@@ -5443,7 +5443,12 @@ var _ = Describe("cluster", func() {
 			mockGetInstallConfigSuccess(mockInstallConfigBuilder)
 			mockVersions.EXPECT().GetReleaseImage(gomock.Any(), gomock.Any(), common.ARM64CPUArchitecture, gomock.Any()).Return(armRelease, nil).Times(1)
 			mockVersions.EXPECT().GetReleaseImage(gomock.Any(), gomock.Any(), common.DefaultCPUArchitecture, gomock.Any()).Return(common.TestDefaultConfig.ReleaseImage, nil).Times(1)
-			mockGenerator.EXPECT().GenerateInstallConfig(gomock.Any(), gomock.Any(), gomock.Any(), *armRelease.URL, *common.TestDefaultConfig.ReleaseImage.URL).Return(nil).Times(1)
+			mockGenerator.EXPECT().GenerateInstallConfig(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, genData generator.InputData) error {
+					Expect(genData.ReleaseImage).To(Equal(*armRelease.URL))
+					Expect(genData.InstallerReleaseImageOverride).To(Equal(*common.TestDefaultConfig.ReleaseImage.URL))
+					return nil
+				}).Times(1)
 
 			mockClusterPrepareForInstallationSuccess(mockClusterApi)
 			mockHostPrepareForRefresh(mockHostApi)

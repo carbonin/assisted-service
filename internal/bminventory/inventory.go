@@ -1752,7 +1752,13 @@ func (b *bareMetalInventory) generateClusterInstallConfig(ctx context.Context, c
 		installerReleaseImageOverride = *defaultArchImage.URL
 	}
 
-	if err := b.generator.GenerateInstallConfig(ctx, cluster, cfg, *releaseImage.URL, installerReleaseImageOverride); err != nil {
+	genData := generator.InputData{
+		Cluster:                       cluster,
+		InstallConfig:                 cfg,
+		ReleaseImage:                  *releaseImage.URL,
+		InstallerReleaseImageOverride: installerReleaseImageOverride,
+	}
+	if err := b.generator.GenerateInstallConfig(ctx, genData); err != nil {
 		msg := fmt.Sprintf("failed generating install config for cluster %s", cluster.ID)
 		log.WithError(err).Error(msg)
 		return errors.Wrap(err, msg)
