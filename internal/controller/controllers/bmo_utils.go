@@ -38,6 +38,7 @@ type ICCConfig struct {
 	IronicBaseURL          string
 	IronicInspectorBaseUrl string
 	IronicAgentImage       string
+	IronicAgentVersion     string
 }
 
 type bmoUtils struct {

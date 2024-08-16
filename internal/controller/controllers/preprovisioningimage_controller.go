@@ -53,7 +53,10 @@ import (
 
 type imageConditionReason string
 
-const archMismatchReason = "InfraEnvArchMismatch"
+const (
+	archMismatchReason              = "InfraEnvArchMismatch"
+	minimalVersionForIronicMultiURL = "4.16.0"
+)
 
 type PreprovisioningImageControllerConfig struct {
 	// The default ironic agent image was obtained by running "oc adm release info --image-for=ironic-agent  quay.io/openshift-release-dev/ocp-release:4.11.0-fc.0-x86_64"
@@ -75,6 +78,7 @@ type PreprovisioningImageReconciler struct {
 	Config                  PreprovisioningImageControllerConfig
 	hubIronicAgentImage     string
 	hubReleaseArchitectures []string
+	hubReleaseVersion       string
 	BMOUtils                BMOUtils
 }
 
@@ -438,6 +442,7 @@ func (r *PreprovisioningImageReconciler) getIronicConfigFromBMOConfig(ctx contex
 func (r *PreprovisioningImageReconciler) getIronicConfigFromHUB(ctx context.Context, log logrus.FieldLogger, infraEnvInternal *common.InfraEnv) *ICCConfig {
 	image := r.hubIronicAgentImage
 	architectures := r.hubReleaseArchitectures
+	version := r.hubReleaseVersion
 	if image == "" {
 		cv := &configv1.ClusterVersion{}
 		err := r.Get(ctx, types.NamespacedName{Name: "version"}, cv)
@@ -455,9 +460,15 @@ func (r *PreprovisioningImageReconciler) getIronicConfigFromHUB(ctx context.Cont
 			log.WithError(err).Warningf("Failed to get ironic agent image from release (%s)", cv.Status.Desired.Image)
 			return nil
 		}
+		version, err = r.OcRelease.GetOpenshiftVersion(log, cv.Status.Desired.Image, r.ReleaseImageMirror, infraEnvInternal.PullSecret)
+		if err != nil {
+			log.WithError(err).Warningf("Failed to get openshift version from release (%s)", cv.Status.Desired.Image)
+			return nil
+		}
 		r.hubIronicAgentImage = image
 		r.hubReleaseArchitectures = architectures
-		log.Infof("Caching hub ironic agent image %s for architectures %v", image, architectures)
+		r.hubReleaseVersion = version
+		log.Infof("Caching hub ironic agent image %s for architectures %v and version %s", image, architectures, version)
 	}
 
 	if !funk.Contains(architectures, infraEnvInternal.CPUArchitecture) {
@@ -465,9 +476,10 @@ func (r *PreprovisioningImageReconciler) getIronicConfigFromHUB(ctx context.Cont
 		return nil
 	}
 
-	log.Infof("Setting ironic agent image (%s) from HUB cluster", image)
+	log.Infof("Setting ironic agent image (%s) version (%s) from HUB cluster", image, version)
 	return &ICCConfig{
-		IronicAgentImage: image,
+		IronicAgentImage:   image,
+		IronicAgentVersion: version,
 	}
 }
 
@@ -488,17 +500,21 @@ func (r *PreprovisioningImageReconciler) getIronicDefaultConfig(log logrus.Field
 func (r *PreprovisioningImageReconciler) getIronicConfig(ctx context.Context, log logrus.FieldLogger, infraEnv *aiv1beta1.InfraEnv, infraEnvInternal *common.InfraEnv) (*ICCConfig, error) {
 	var iccConfig *ICCConfig
 
+	// this should provide the version from the annotation (if provided)
 	iccConfig = r.getIronicConfigFromUserOverride(log, infraEnv)
 
 	if iccConfig == nil {
+		// this will have comma separated list if it is supported by hub so we don't need version in icc config
 		iccConfig = r.getIronicConfigFromBMOConfig(ctx, log, infraEnvInternal)
 	}
 
 	if iccConfig == nil {
+		// this should provide the version for the hub
 		iccConfig = r.getIronicConfigFromHUB(ctx, log, infraEnvInternal)
 	}
 
 	if iccConfig == nil {
+		// this should provide the version for the default image
 		iccConfig = r.getIronicDefaultConfig(log, infraEnvInternal)
 	}
 
@@ -507,6 +523,7 @@ func (r *PreprovisioningImageReconciler) getIronicConfig(ctx context.Context, lo
 	}
 
 	if iccConfig.IronicBaseURL == "" && iccConfig.IronicInspectorBaseUrl == "" {
+		// fill with a comma separated list if the version in iccConfig is not empty and high enough
 		err := r.fillIronicServiceURLs(ctx, infraEnv, infraEnvInternal, iccConfig)
 		if err != nil {
 			return nil, err
@@ -586,6 +603,28 @@ func (r *PreprovisioningImageReconciler) fillIronicServiceURLs(ctx context.Conte
 	ironicIPs, inspectorIPs, err := r.BMOUtils.GetIronicIPs()
 	if err != nil {
 		return err
+	}
+
+	if iccConfig.IronicAgentVersion != "" {
+		multiURLAllowed, err := common.VersionGreaterOrEqual(iccConfig.IronicAgentVersion, minimalVersionForIronicMultiURL)
+		if err != nil {
+			r.Log.WithError(err).Errorf("failed to check if ironic version (%s) is valid for passing multiple URLs (must be >= %s)", iccConfig.IronicAgentVersion, minimalVersionForIronicMultiURL)
+		}
+
+		if multiURLAllowed {
+			ironicURLs := []string{}
+			for _, ip := range ironicIPs {
+				ironicURLs = append(ironicURLs, getUrlFromIP(ip))
+			}
+			inspectorURLs := []string{}
+			for _, ip := range inspectorIPs {
+				inspectorURLs = append(inspectorURLs, getUrlFromIP(ip))
+			}
+
+			iccConfig.IronicBaseURL = strings.Join(ironicURLs, ",")
+			iccConfig.IronicInspectorBaseUrl = strings.Join(inspectorURLs, ",")
+			return nil
+		}
 	}
 
 	// default to the first IP returned
