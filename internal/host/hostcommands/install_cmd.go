@@ -49,10 +49,12 @@ type installCmd struct {
 	versionsHandler     versions.Handler
 	enableSkipMcoReboot bool
 	notifyNumReboots    bool
+	installToDisk       bool
 }
 
 func NewInstallCmd(log logrus.FieldLogger, db *gorm.DB, hwValidator hardware.Validator, ocRelease oc.Release,
-	instructionConfig InstructionConfig, eventsHandler eventsapi.Handler, versionsHandler versions.Handler, enableSkipMcoReboot, notifyNumReboots bool) *installCmd {
+	instructionConfig InstructionConfig, eventsHandler eventsapi.Handler, versionsHandler versions.Handler,
+	enableSkipMcoReboot, notifyNumReboots, installToDisk bool) *installCmd {
 	return &installCmd{
 		baseCmd:             baseCmd{log: log},
 		db:                  db,
@@ -63,6 +65,7 @@ func NewInstallCmd(log logrus.FieldLogger, db *gorm.DB, hwValidator hardware.Val
 		versionsHandler:     versionsHandler,
 		enableSkipMcoReboot: enableSkipMcoReboot,
 		notifyNumReboots:    notifyNumReboots,
+		installToDisk:       installToDisk,
 	}
 }
 
@@ -149,6 +152,15 @@ func (i *installCmd) getFullInstallerCommand(ctx context.Context, cluster *commo
 		if err != nil {
 			return "", err
 		}
+
+		if i.installToDisk {
+			request.CoreosImage, err = i.ocRelease.GetCoreOSImage(i.log, *releaseImage.URL, i.instructionConfig.ReleaseImageMirror, cluster.PullSecret)
+			if err != nil {
+				return "", err
+			}
+			i.log.Infof("installing to disk with CoreOS image %s", request.CoreosImage)
+		}
+
 		i.log.Infof("Install command releaseImage: %s, mcoImage: %s", *releaseImage.URL, request.McoImage)
 
 		mustGatherMap, err := i.versionsHandler.GetMustGatherImages(cluster.OpenshiftVersion, cluster.CPUArchitecture, cluster.PullSecret)
