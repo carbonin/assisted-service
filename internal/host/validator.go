@@ -290,6 +290,7 @@ type validator struct {
 	operatorsAPI     operators.API
 	providerRegistry registry.ProviderRegistry
 	versionHandler   versions.Handler
+	installToDisk    bool
 }
 
 func (v *validator) isMediaConnected(c *validationContext) (ValidationStatus, string) {

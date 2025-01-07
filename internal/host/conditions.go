@@ -41,7 +41,13 @@ func (v *validator) isInstallationDiskSpeedCheckSuccessful(c *validationContext)
 		return true
 	}
 
-	return true
+	// Disk speed check is skipped when installing to the local disk
+	if v.installToDisk {
+		return true
+	}
+
+	info, err := v.getBootDeviceInfo(c.host)
+	return err == nil && info != nil && info.DiskSpeed != nil && info.DiskSpeed.Tested && info.DiskSpeed.ExitCode == 0
 }
 
 func (v *validator) isClusterPreparingForInstallation(c *validationContext) bool {

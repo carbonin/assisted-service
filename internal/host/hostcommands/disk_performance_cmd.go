@@ -18,18 +18,23 @@ type diskPerfCheckCmd struct {
 	hwValidator        hardware.Validator
 	diskPerfCheckImage string
 	timeoutSeconds     float64
+	installToDisk      bool
 }
 
-func NewDiskPerfCheckCmd(log logrus.FieldLogger, diskPerfCheckImage string, hwValidator hardware.Validator, timeoutSeconds float64) *diskPerfCheckCmd {
+func NewDiskPerfCheckCmd(log logrus.FieldLogger, diskPerfCheckImage string, hwValidator hardware.Validator, timeoutSeconds float64, installToDisk bool) *diskPerfCheckCmd {
 	return &diskPerfCheckCmd{
 		baseCmd:            baseCmd{log: log},
 		diskPerfCheckImage: diskPerfCheckImage,
 		hwValidator:        hwValidator,
 		timeoutSeconds:     timeoutSeconds,
+		installToDisk:      installToDisk,
 	}
 }
 
 func (c *diskPerfCheckCmd) GetSteps(_ context.Context, host *models.Host) ([]*models.Step, error) {
+	if c.installToDisk {
+		return nil, nil
+	}
 	bootDevice, err := hardware.GetBootDevice(c.hwValidator, host)
 	if err != nil {
 		return nil, err
