@@ -278,6 +278,11 @@ func (r *BMACReconciler) Reconcile(origCtx context.Context, req ctrl.Request) (c
 		}
 	}
 
+	result = r.handleBMHDetachedAnnotation(log, bmh, agent)
+	if res := r.handleReconcileResult(ctx, log, result, bmh); res != nil {
+		return res.Result()
+	}
+
 	result = r.reconcileBMH(ctx, log, bmh, agent, infraEnv)
 	if res := r.handleReconcileResult(ctx, log, result, bmh); res != nil {
 		return res.Result()
@@ -319,11 +324,6 @@ func (r *BMACReconciler) Reconcile(origCtx context.Context, req ctrl.Request) (c
 			log.WithError(err).Errorf("Error adding BMH detached annotation after creating spoke BMH")
 			return reconcileError{err: err}.Result()
 		}
-	}
-
-	result = r.handleBMHDetachedAnnotation(log, bmh, agent)
-	if res := r.handleReconcileResult(ctx, log, result, bmh); res != nil {
-		return res.Result()
 	}
 
 	return result.Result()
@@ -601,7 +601,7 @@ func (r *BMACReconciler) handleBMHDetachedAnnotation(log logrus.FieldLogger, bmh
 
 	// detach when provisioned for converged or anytime after reboot for non-converged
 	nonConvergedDetachStages := []models.HostStage{models.HostStageFailed, models.HostStageRebooting, models.HostStageJoined, models.HostStageDone}
-	if r.ConvergedFlowEnabled && bmh.Status.Provisioning.State == bmh_v1alpha1.StateProvisioned || funk.Contains(nonConvergedDetachStages, agent.Status.Progress.CurrentStage) {
+	if r.ConvergedFlowEnabled && bmh.Status.Provisioning.State == bmh_v1alpha1.StateProvisioned || agent != nil && funk.Contains(nonConvergedDetachStages, agent.Status.Progress.CurrentStage) {
 		return r.ensureBMHDetached(log, bmh, agent)
 	}
 
@@ -945,16 +945,9 @@ func (r *BMACReconciler) reconcileBMH(ctx context.Context, log logrus.FieldLogge
 	//
 	// User is expected to remove the `detached` annotation manually
 	// to bring this BMH back into the pool of reconciled BMH resources.
-	bmhAnnotations := bmh.ObjectMeta.GetAnnotations()
-	if _, ok := bmhAnnotations[BMH_DETACHED_ANNOTATION]; ok {
-		result := r.ensureBMHDetached(log, bmh, agent)
-		if !result.Stop(ctx) {
-			// only create a new result here if ensureBMHDetected had no changes and no errors
-			// this ensures that the reconcile call will still exit
-			result = reconcileComplete{stop: true}
-		}
+	if metav1.HasAnnotation(bmh.ObjectMeta, BMH_DETACHED_ANNOTATION) {
 		log.Debugf("Stopped BMH reconcile because it has been detached")
-		return result
+		return reconcileComplete{stop: true}
 	}
 
 	dirty := false
