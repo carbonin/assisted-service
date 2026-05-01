@@ -6323,3 +6323,31 @@ var _ = Describe("createNewHost", func() {
 		Expect(host.ClusterID).To(BeNil())
 	})
 })
+
+type fakeSpokeK8sClient struct {
+	client.Client
+}
+
+func (c fakeSpokeK8sClient) ListCsrs(ctx context.Context) (*certificatesv1.CertificateSigningRequestList, error) {
+	return nil, nil
+}
+
+func (c fakeSpokeK8sClient) ApproveCsr(ctx context.Context, csr *certificatesv1.CertificateSigningRequest) error {
+	return nil
+}
+
+func (c fakeSpokeK8sClient) GetNode(ctx context.Context, name string) (*corev1.Node, error) {
+	return nil, nil
+}
+
+func (c fakeSpokeK8sClient) PatchNodeLabels(ctx context.Context, name, labels string) error {
+	return nil
+}
+
+func (c fakeSpokeK8sClient) PatchMachineConfigPoolPaused(ctx context.Context, pause bool, mcpName string) error {
+	return nil
+}
+
+func (c fakeSpokeK8sClient) DeleteNode(ctx context.Context, name string) error {
+	return nil
+}

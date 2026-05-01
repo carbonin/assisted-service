@@ -178,9 +178,6 @@ type ASC struct {
 	/* Status part of AgentServiceConfig CRD family */
 	status     *aiv1beta1.AgentServiceConfigStatus
 	conditions *[]conditionsv1.Condition
-
-	/* properties. use this field for cross cluster communication */
-	properties map[string]interface{}
 }
 
 func initASC(r *AgentServiceConfigReconciler, instance *aiv1beta1.AgentServiceConfig) ASC {
@@ -2648,6 +2645,20 @@ func newACIWebHook(ctx context.Context, log logrus.FieldLogger, asc ASC) (client
 		return nil
 	}
 	return &aci, mutateFn, nil
+}
+
+func createServiceAccountFn(name, namespace string) (client.Object, controllerutil.MutateFn, error) {
+	sa := corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+
+	mutateFn := func() error {
+		return nil
+	}
+	return &sa, mutateFn, nil
 }
 
 func newWebHookServiceAccount(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {

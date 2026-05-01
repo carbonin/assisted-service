@@ -605,7 +605,6 @@ spec:
           - agentclassifications
           - agents
           - agentserviceconfigs
-          - hypershiftagentserviceconfigs
           - infraenvs
           verbs:
           - create
@@ -621,7 +620,6 @@ spec:
           - agentclassifications/finalizers
           - agents/ai-deprovision
           - agentserviceconfigs/finalizers
-          - hypershiftagentserviceconfigs/finalizers
           verbs:
           - update
         - apiGroups:
@@ -630,7 +628,6 @@ spec:
           - agentclassifications/status
           - agents/status
           - agentserviceconfigs/status
-          - hypershiftagentserviceconfigs/status
           - infraenvs/status
           verbs:
           - get
@@ -640,14 +637,6 @@ spec:
           - agent-install.openshift.io
           resources:
           - nmstateconfigs
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - apiextensions.k8s.io
-          resources:
-          - customresourcedefinitions
           verbs:
           - get
           - list
@@ -721,18 +710,6 @@ spec:
           verbs:
           - get
           - list
-          - watch
-        - apiGroups:
-          - coordination.k8s.io
-          resources:
-          - leases
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
           - watch
         - apiGroups:
           - extensions.hive.openshift.io
@@ -860,8 +837,6 @@ spec:
           resources:
           - clusterrolebindings
           - clusterroles
-          - rolebindings
-          - roles
           verbs:
           - create
           - delete
