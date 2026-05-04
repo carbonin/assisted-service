@@ -44,8 +44,8 @@ func ingressTLSSecretName(ingressName string) string {
 	return fmt.Sprintf("%s-ingress", ingressName)
 }
 
-func (r *AgentServiceConfigReconciler) newIngress(asc ASC, name string, host string, port int32) (client.Object, controllerutil.MutateFn, error) {
-	if asc.spec.Ingress == nil {
+func (r *AgentServiceConfigReconciler) newIngress(asc *aiv1beta1.AgentServiceConfig, name string, host string, port int32) (client.Object, controllerutil.MutateFn, error) {
+	if asc.Spec.Ingress == nil {
 		return nil, nil, fmt.Errorf("ingress config is required for non-OpenShift deployments")
 	}
 	pathTypePrefix := netv1.PathTypePrefix
@@ -57,12 +57,12 @@ func (r *AgentServiceConfigReconciler) newIngress(asc ASC, name string, host str
 	}
 
 	mutateFn := func() error {
-		if err := controllerutil.SetControllerReference(asc.Object, ingress, r.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(asc, ingress, r.Scheme); err != nil {
 			return err
 		}
 		setAnnotation(&ingress.ObjectMeta, certManagerIssuerAnnotation, caIssuerName)
 		ingress.Spec = netv1.IngressSpec{
-			IngressClassName: asc.spec.Ingress.ClassName,
+			IngressClassName: asc.Spec.Ingress.ClassName,
 			Rules: []netv1.IngressRule{{
 				Host: host,
 				IngressRuleValue: netv1.IngressRuleValue{HTTP: &netv1.HTTPIngressRuleValue{
@@ -101,7 +101,7 @@ func (r *AgentServiceConfigReconciler) certManagerComponents() []component {
 }
 
 // newSelfSignedIssuer describes how to create an Issuer for the self-signed root issuer
-func (r *AgentServiceConfigReconciler) newSelfSignedIssuer(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
+func (r *AgentServiceConfigReconciler) newSelfSignedIssuer(ctx context.Context, log logrus.FieldLogger, asc *aiv1beta1.AgentServiceConfig) (client.Object, controllerutil.MutateFn, error) {
 	is := &certtypes.Issuer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      selfSignedIssuerName,
@@ -109,7 +109,7 @@ func (r *AgentServiceConfigReconciler) newSelfSignedIssuer(ctx context.Context, 
 		},
 	}
 	mutateFn := func() error {
-		if err := controllerutil.SetControllerReference(asc.Object, is, r.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(asc, is, r.Scheme); err != nil {
 			return err
 		}
 		is.Spec = certtypes.IssuerSpec{
@@ -123,7 +123,7 @@ func (r *AgentServiceConfigReconciler) newSelfSignedIssuer(ctx context.Context, 
 }
 
 // newCACert describes how to create a Certificate for the root CA
-func (r *AgentServiceConfigReconciler) newCACert(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
+func (r *AgentServiceConfigReconciler) newCACert(ctx context.Context, log logrus.FieldLogger, asc *aiv1beta1.AgentServiceConfig) (client.Object, controllerutil.MutateFn, error) {
 	cert := &certtypes.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      caIssuerName,
@@ -132,7 +132,7 @@ func (r *AgentServiceConfigReconciler) newCACert(ctx context.Context, log logrus
 	}
 
 	mutateFn := func() error {
-		if err := controllerutil.SetControllerReference(asc.Object, cert, r.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(asc, cert, r.Scheme); err != nil {
 			return err
 		}
 		cert.Spec.CommonName = caCommonName
@@ -149,7 +149,7 @@ func (r *AgentServiceConfigReconciler) newCACert(ctx context.Context, log logrus
 }
 
 // newCAIssuer describes how to create an Issuer for creating certificates signed by the root CA cert
-func (r *AgentServiceConfigReconciler) newCAIssuer(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
+func (r *AgentServiceConfigReconciler) newCAIssuer(ctx context.Context, log logrus.FieldLogger, asc *aiv1beta1.AgentServiceConfig) (client.Object, controllerutil.MutateFn, error) {
 	is := &certtypes.Issuer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      caIssuerName,
@@ -157,7 +157,7 @@ func (r *AgentServiceConfigReconciler) newCAIssuer(ctx context.Context, log logr
 		},
 	}
 	mutateFn := func() error {
-		if err := controllerutil.SetControllerReference(asc.Object, is, r.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(asc, is, r.Scheme); err != nil {
 			return err
 		}
 		is.Spec = certtypes.IssuerSpec{
@@ -174,7 +174,7 @@ func (r *AgentServiceConfigReconciler) newCAIssuer(ctx context.Context, log logr
 }
 
 // newCertificate describes how to create a Certificate for a service signed by the assisted installer CA
-func (r *AgentServiceConfigReconciler) newCertificate(serviceName string, asc ASC) (client.Object, controllerutil.MutateFn, error) {
+func (r *AgentServiceConfigReconciler) newCertificate(serviceName string, asc *aiv1beta1.AgentServiceConfig) (client.Object, controllerutil.MutateFn, error) {
 	cert := &certtypes.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName,
@@ -183,7 +183,7 @@ func (r *AgentServiceConfigReconciler) newCertificate(serviceName string, asc AS
 	}
 
 	mutateFn := func() error {
-		if err := controllerutil.SetControllerReference(asc.Object, cert, r.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(asc, cert, r.Scheme); err != nil {
 			return err
 		}
 		cert.Spec.SecretName = serviceName
@@ -201,6 +201,6 @@ func (r *AgentServiceConfigReconciler) newCertificate(serviceName string, asc AS
 	return cert, mutateFn, nil
 }
 
-func (r *AgentServiceConfigReconciler) newWebhookCert(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
+func (r *AgentServiceConfigReconciler) newWebhookCert(ctx context.Context, log logrus.FieldLogger, asc *aiv1beta1.AgentServiceConfig) (client.Object, controllerutil.MutateFn, error) {
 	return r.newCertificate(webhookServiceName, asc)
 }

@@ -90,15 +90,15 @@ func newAgentServiceConfigRequest(asc *aiv1beta1.AgentServiceConfig) ctrl.Reques
 	return ctrl.Request{NamespacedName: namespacedName}
 }
 
-func AssertReconcileSuccess(ctx context.Context, log logrus.FieldLogger, c client.Client, ascc ASC, fn NewComponentFn) {
-	obj, mutateFn, err := fn(ctx, log, ascc)
+func AssertReconcileSuccess(ctx context.Context, log logrus.FieldLogger, c client.Client, asc *aiv1beta1.AgentServiceConfig, fn NewComponentFn) {
+	obj, mutateFn, err := fn(ctx, log, asc)
 	Expect(err).To(BeNil())
 	_, err = controllerutil.CreateOrUpdate(ctx, c, obj, mutateFn)
 	Expect(err).To(BeNil())
 }
 
-func AssertReconcileFailure(ctx context.Context, log logrus.FieldLogger, ascc ASC, fn NewComponentFn) {
-	_, _, err := fn(ctx, log, ascc)
+func AssertReconcileFailure(ctx context.Context, log logrus.FieldLogger, asc *aiv1beta1.AgentServiceConfig, fn NewComponentFn) {
+	_, _, err := fn(ctx, log, asc)
 	Expect(err).ToNot(BeNil())
 }
 
@@ -1308,7 +1308,6 @@ var _ = Describe("newImageServiceService", func() {
 	var (
 		asc  *aiv1beta1.AgentServiceConfig
 		ascr *AgentServiceConfigReconciler
-		ascc ASC
 		ctx  = context.Background()
 		log  = logrus.New()
 	)
@@ -1316,7 +1315,6 @@ var _ = Describe("newImageServiceService", func() {
 	BeforeEach(func() {
 		asc = newASCDefault()
 		ascr = newTestReconciler(asc)
-		ascc = initASC(ascr, asc)
 	})
 
 	Context("with no existing service", func() {
@@ -1324,7 +1322,7 @@ var _ = Describe("newImageServiceService", func() {
 			found := &corev1.Service{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).ToNot(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceService)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newImageServiceService)
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
 			Expect(found.ObjectMeta.Annotations).NotTo(BeNil())
 			Expect(found.ObjectMeta.Annotations[servingCertAnnotation]).To(Equal(imageServiceName))
@@ -1333,11 +1331,11 @@ var _ = Describe("newImageServiceService", func() {
 
 	Context("with existing service", func() {
 		It("should add annotation", func() {
-			s, _, _ := ascr.newImageServiceService(ctx, log, ascc)
+			s, _, _ := ascr.newImageServiceService(ctx, log, asc)
 			service := s.(*corev1.Service)
 			Expect(ascr.Client.Create(ctx, service)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceService)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newImageServiceService)
 
 			found := &corev1.Service{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -1351,7 +1349,6 @@ var _ = Describe("newImageServiceRoute", func() {
 	var (
 		asc  *aiv1beta1.AgentServiceConfig
 		ascr *AgentServiceConfigReconciler
-		ascc ASC
 		ctx  = context.Background()
 		log  = logrus.New()
 	)
@@ -1359,7 +1356,6 @@ var _ = Describe("newImageServiceRoute", func() {
 	BeforeEach(func() {
 		asc = newASCDefault()
 		ascr = newTestReconciler(asc)
-		ascc = initASC(ascr, asc)
 	})
 
 	Context("with no existing route", func() {
@@ -1367,7 +1363,7 @@ var _ = Describe("newImageServiceRoute", func() {
 			found := &routev1.Route{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).ToNot(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceRoute)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newImageServiceRoute)
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
 		})
 	})
@@ -1375,12 +1371,12 @@ var _ = Describe("newImageServiceRoute", func() {
 	Context("with existing route", func() {
 		It("should not change route Host", func() {
 			routeHost := "route.example.com"
-			r, _, _ := ascr.newImageServiceRoute(ctx, log, ascc)
+			r, _, _ := ascr.newImageServiceRoute(ctx, log, asc)
 			route := r.(*routev1.Route)
 			route.Spec.Host = routeHost
 			Expect(ascr.Client.Create(ctx, route)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceRoute)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newImageServiceRoute)
 
 			found := &routev1.Route{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -1393,7 +1389,6 @@ var _ = Describe("newImageServiceServiceAccount", func() {
 	var (
 		asc  *aiv1beta1.AgentServiceConfig
 		ascr *AgentServiceConfigReconciler
-		ascc ASC
 		ctx  = context.Background()
 		log  = logrus.New()
 	)
@@ -1401,7 +1396,6 @@ var _ = Describe("newImageServiceServiceAccount", func() {
 	BeforeEach(func() {
 		asc = newASCDefault()
 		ascr = newTestReconciler(asc)
-		ascc = initASC(ascr, asc)
 	})
 
 	Context("with no existing serviceAccount", func() {
@@ -1409,7 +1403,7 @@ var _ = Describe("newImageServiceServiceAccount", func() {
 			found := &corev1.ServiceAccount{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).ToNot(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceServiceAccount)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newImageServiceServiceAccount)
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
 		})
 	})
@@ -1419,7 +1413,6 @@ var _ = Describe("newImageServiceConfigMap", func() {
 	var (
 		asc  *aiv1beta1.AgentServiceConfig
 		ascr *AgentServiceConfigReconciler
-		ascc ASC
 		ctx  = context.Background()
 		log  = logrus.New()
 	)
@@ -1427,7 +1420,6 @@ var _ = Describe("newImageServiceConfigMap", func() {
 	BeforeEach(func() {
 		asc = newASCDefault()
 		ascr = newTestReconciler(asc)
-		ascc = initASC(ascr, asc)
 	})
 
 	Context("with no existing configmap", func() {
@@ -1435,18 +1427,18 @@ var _ = Describe("newImageServiceConfigMap", func() {
 			found := &corev1.ConfigMap{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).ToNot(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceConfigMap)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newImageServiceConfigMap)
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
 		})
 	})
 
 	Context("with existing configmap", func() {
 		It("should add annotation", func() {
-			cm, _, _ := ascr.newImageServiceConfigMap(ctx, log, ascc)
+			cm, _, _ := ascr.newImageServiceConfigMap(ctx, log, asc)
 			configMap := cm.(*corev1.ConfigMap)
 			Expect(ascr.Client.Create(ctx, configMap)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceConfigMap)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newImageServiceConfigMap)
 
 			found := &corev1.ConfigMap{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -1460,7 +1452,6 @@ var _ = Describe("reconcileImageServiceStatefulSet", func() {
 	var (
 		asc  *aiv1beta1.AgentServiceConfig
 		ascr *AgentServiceConfigReconciler
-		ascc ASC
 		ctx  = context.Background()
 		log  = logrus.New()
 
@@ -1478,21 +1469,20 @@ var _ = Describe("reconcileImageServiceStatefulSet", func() {
 	BeforeEach(func() {
 		asc = newASCDefault()
 		ascr = newTestReconciler(asc, imageRoute)
-		ascc = initASC(ascr, asc)
 	})
 
 	reconcileUntilDone := func(runs int) {
 		for i := 0; i < runs; i++ {
-			Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+			Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 		}
 	}
 
 	It("is doesn't change the stateful set when agent service config is unchanged", func() {
-		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 		initial := &appsv1.StatefulSet{}
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, initial)).To(Succeed())
 
-		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 		next := &appsv1.StatefulSet{}
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, next)).To(Succeed())
 
@@ -1518,7 +1508,7 @@ var _ = Describe("reconcileImageServiceStatefulSet", func() {
 		}
 		Expect(ascr.Client.Create(ctx, deploy)).To(Succeed())
 
-		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 
 		found := &appsv1.Deployment{}
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).ToNot(Succeed())
@@ -1526,7 +1516,7 @@ var _ = Describe("reconcileImageServiceStatefulSet", func() {
 
 	It("reconciles other fields", func() {
 		// create initial stateful set
-		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 
 		// change replicas to some incorrect value
 		var replicas int32 = 5
@@ -1542,15 +1532,14 @@ var _ = Describe("reconcileImageServiceStatefulSet", func() {
 		Expect(ascr.Client.Patch(ctx, ss, client.MergeFrom(ss))).To(Succeed())
 
 		// reconcile and check that replicas were set back to 1
-		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, ss)).To(Succeed())
 		Expect(*ss.Spec.Replicas).To(Equal(int32(1)))
 	})
 
 	It("removes empty dir volume and adds volume claim template when image storage is added", func() {
 		asc.Spec.ImageStorage = nil
-		ascc = initASC(ascr, asc)
-		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 
 		ss := &appsv1.StatefulSet{}
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, ss)).To(Succeed())
@@ -1568,7 +1557,6 @@ var _ = Describe("reconcileImageServiceStatefulSet", func() {
 
 		// add image storage and reconcile
 		asc = newASCDefault()
-		ascc = initASC(ascr, asc)
 		// it takes several reconcile calls to handle this situation
 		reconcileUntilDone(5)
 
@@ -1586,7 +1574,7 @@ var _ = Describe("reconcileImageServiceStatefulSet", func() {
 	})
 
 	It("removes volume claim templates and adds empty dir volume when image storage is removed", func() {
-		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 		ss := &appsv1.StatefulSet{}
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, ss)).To(Succeed())
 
@@ -1620,7 +1608,7 @@ var _ = Describe("reconcileImageServiceStatefulSet", func() {
 	})
 
 	It("removes pvcs for pod volumes when volumes have been updated", func() {
-		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 
 		pvc := &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1650,7 +1638,7 @@ var _ = Describe("reconcileImageServiceStatefulSet", func() {
 		}()
 
 		found := &appsv1.StatefulSet{}
-		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
 		var httpProxy, httpsProxy, noProxy string
 		for _, envVar := range found.Spec.Template.Spec.Containers[0].Env {
@@ -1670,7 +1658,7 @@ var _ = Describe("reconcileImageServiceStatefulSet", func() {
 
 	It("should expose two ports for ipxe", func() {
 		found := &appsv1.StatefulSet{}
-		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
 		Expect(found.Spec.Template.Spec.Containers).To(HaveLen(1))
 		Expect(found.Spec.Template.Spec.Containers[0].Ports).To(HaveLen(2))
@@ -1680,7 +1668,7 @@ var _ = Describe("reconcileImageServiceStatefulSet", func() {
 
 	It("should set image service scheme and host env vars", func() {
 		found := &appsv1.StatefulSet{}
-		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, ascc)).To(Succeed())
+		Expect(ascr.reconcileImageServiceStatefulSet(ctx, log, asc)).To(Succeed())
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
 		var baseURL string
 		for _, envVar := range found.Spec.Template.Spec.Containers[0].Env {
@@ -1697,7 +1685,6 @@ var _ = Describe("ensureAgentRoute", func() {
 	var (
 		asc  *aiv1beta1.AgentServiceConfig
 		ascr *AgentServiceConfigReconciler
-		ascc ASC
 		ctx  = context.Background()
 		log  = logrus.New()
 	)
@@ -1705,7 +1692,6 @@ var _ = Describe("ensureAgentRoute", func() {
 	BeforeEach(func() {
 		asc = newASCDefault()
 		ascr = newTestReconciler(asc)
-		ascc = initASC(ascr, asc)
 	})
 
 	Context("with no existing route", func() {
@@ -1714,7 +1700,7 @@ var _ = Describe("ensureAgentRoute", func() {
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName,
 				Namespace: testNamespace}, found)).ToNot(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAgentRoute)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAgentRoute)
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName,
 				Namespace: testNamespace}, found)).To(Succeed())
 		})
@@ -1723,12 +1709,12 @@ var _ = Describe("ensureAgentRoute", func() {
 	Context("with existing route", func() {
 		It("should not change route Host", func() {
 			routeHost := "route.example.com"
-			r, _, _ := ascr.newAgentRoute(ctx, log, ascc)
+			r, _, _ := ascr.newAgentRoute(ctx, log, asc)
 			route := r.(*routev1.Route)
 			route.Spec.Host = routeHost
 			Expect(ascr.Client.Create(ctx, route)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAgentRoute)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAgentRoute)
 
 			found := &routev1.Route{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName,
@@ -1742,7 +1728,6 @@ var _ = Describe("ensureAgentLocalAuthSecret", func() {
 	var (
 		asc        *aiv1beta1.AgentServiceConfig
 		ascr       *AgentServiceConfigReconciler
-		ascc       ASC
 		ctx        = context.Background()
 		log        = logrus.New()
 		privateKey = "test-private-key"
@@ -1752,7 +1737,6 @@ var _ = Describe("ensureAgentLocalAuthSecret", func() {
 	BeforeEach(func() {
 		asc = newASCDefault()
 		ascr = newTestReconciler(asc)
-		ascc = initASC(ascr, asc)
 	})
 
 	Context("with an existing local auth secret", func() {
@@ -1770,7 +1754,7 @@ var _ = Describe("ensureAgentLocalAuthSecret", func() {
 			}
 			Expect(ascr.Client.Create(ctx, localAuthSecret)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAgentLocalAuthSecret)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAgentLocalAuthSecret)
 
 			found := &corev1.Secret{}
 			err := ascr.Client.Get(ctx, types.NamespacedName{Name: agentLocalAuthSecretName, Namespace: testNamespace}, found)
@@ -1783,7 +1767,7 @@ var _ = Describe("ensureAgentLocalAuthSecret", func() {
 
 	Context("with no existing local auth secret", func() {
 		It("should create new keys and not overwrite them in subsequent reconciles", func() {
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAgentLocalAuthSecret)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAgentLocalAuthSecret)
 
 			found := &corev1.Secret{}
 			err := ascr.Client.Get(ctx, types.NamespacedName{Name: agentLocalAuthSecretName,
@@ -1797,7 +1781,7 @@ var _ = Describe("ensureAgentLocalAuthSecret", func() {
 			Expect(foundPublicKey).ToNot(Equal(publicKey))
 			Expect(foundPublicKey).ToNot(BeNil())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAgentLocalAuthSecret)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAgentLocalAuthSecret)
 			Expect(err).To(BeNil())
 
 			foundAfterNextEnsure := &corev1.Secret{}
@@ -1816,7 +1800,6 @@ var _ = Describe("ensurePostgresSecret", func() {
 	var (
 		asc  *aiv1beta1.AgentServiceConfig
 		ascr *AgentServiceConfigReconciler
-		ascc ASC
 		ctx  = context.Background()
 		log  = logrus.New()
 		pass = "password"
@@ -1825,7 +1808,6 @@ var _ = Describe("ensurePostgresSecret", func() {
 	BeforeEach(func() {
 		asc = newASCDefault()
 		ascr = newTestReconciler(asc)
-		ascc = initASC(ascr, asc)
 	})
 
 	Context("with an existing postgres secret", func() {
@@ -1847,7 +1829,7 @@ var _ = Describe("ensurePostgresSecret", func() {
 			}
 			Expect(ascr.Client.Create(ctx, dbSecret)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newPostgresSecret)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newPostgresSecret)
 
 			found := &corev1.Secret{}
 			err := ascr.Client.Get(ctx, types.NamespacedName{Name: databaseName, Namespace: testNamespace}, found)
@@ -1859,7 +1841,7 @@ var _ = Describe("ensurePostgresSecret", func() {
 
 	Context("with no existing postgres secret", func() {
 		It("should create new secret with password", func() {
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newPostgresSecret)
+			AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newPostgresSecret)
 
 			found := &corev1.Secret{}
 			err := ascr.Client.Get(ctx, types.NamespacedName{Name: databaseName, Namespace: testNamespace}, found)
@@ -1883,9 +1865,8 @@ var _ = Describe("newServiceMonitor", func() {
 		ctx := context.Background()
 		asc := newASCDefault()
 		ascr := newTestReconciler(asc)
-		ascc := initASC(ascr, asc)
 
-		AssertReconcileSuccess(ctx, common.GetTestLog(), ascr.Client, ascc, ascr.newServiceMonitor)
+		AssertReconcileSuccess(ctx, common.GetTestLog(), ascr.Client, asc, ascr.newServiceMonitor)
 
 		found := &monitoringv1.ServiceMonitor{}
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -1901,7 +1882,6 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 	var (
 		asc   *aiv1beta1.AgentServiceConfig
 		ascr  *AgentServiceConfigReconciler
-		ascc  ASC
 		ctx   = context.Background()
 		log   = logrus.New()
 		route = &routev1.Route{
@@ -1936,9 +1916,8 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 			It("should not modify assisted-service deployment", func() {
 				asc = newASCDefault()
 				ascr = newTestReconciler(asc, route, assistedCM, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
 
-				AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAssistedServiceDeployment)
 
 				found := &appsv1.Deployment{}
 				Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -1967,8 +1946,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 					},
 				}
 				ascr = newTestReconciler(asc, route, userCM, assistedCM, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
-				AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAssistedServiceDeployment)
 				found := &appsv1.Deployment{}
 				Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
 
@@ -2013,8 +1991,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 				}
 
 				ascr = newTestReconciler(asc, route, mirrorCM, assistedCM, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
-				AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAssistedServiceDeployment)
 
 				found := &appsv1.Deployment{}
 				Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -2047,8 +2024,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 				}
 
 				ascr = newTestReconciler(asc, route, mirrorCM, assistedCM, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
-				AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAssistedServiceDeployment)
 
 				found := &corev1.ConfigMap{}
 				Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: testMirrorRegConfigmapName, Namespace: testNamespace}, found)).To(Succeed())
@@ -2073,8 +2049,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 				}
 
 				ascr = newTestReconciler(asc, route, mirrorCM, assistedCM, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
-				AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAssistedServiceDeployment)
 
 				found := &appsv1.Deployment{}
 				Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -2151,8 +2126,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 				}
 
 				ascr = newTestReconciler(asc, route, mirrorCM, assistedCM, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
-				AssertReconcileFailure(ctx, log, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileFailure(ctx, log, asc, ascr.newAssistedServiceDeployment)
 			})
 		})
 	})
@@ -2170,9 +2144,8 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 				},
 			}
 			ascr = newTestReconciler(asc, osImageCACertCM, assistedTrustedCM)
-			ascc = initASC(ascr, asc)
 
-			obj, mutateFn := ascr.newImageServiceStatefulSet(ctx, log, ascc)
+			obj, mutateFn := ascr.newImageServiceStatefulSet(ctx, log, asc)
 			_, err := controllerutil.CreateOrUpdate(ctx, ascr.Client, obj, mutateFn)
 			Expect(err).To(BeNil())
 
@@ -2194,8 +2167,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 				},
 			}
 			ascr = newTestReconciler(asc, osImageAdditionalParametersSecret, assistedTrustedCM)
-			ascc = initASC(ascr, asc)
-			obj, mutateFn := ascr.newImageServiceStatefulSet(ctx, log, ascc)
+			obj, mutateFn := ascr.newImageServiceStatefulSet(ctx, log, asc)
 			_, err := controllerutil.CreateOrUpdate(ctx, ascr.Client, obj, mutateFn)
 			Expect(err).To(BeNil())
 
@@ -2210,15 +2182,13 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 			It("should fail if assisted configMap not found", func() {
 				asc = newASCDefault()
 				ascr = newTestReconciler(asc, route, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
-				AssertReconcileFailure(ctx, log, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileFailure(ctx, log, asc, ascr.newAssistedServiceDeployment)
 			})
 
 			It("should only add assisted config hash annotation", func() {
 				asc = newASCDefault()
 				ascr = newTestReconciler(asc, route, assistedCM, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
-				AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAssistedServiceDeployment)
 
 				found := &appsv1.Deployment{}
 				Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -2233,8 +2203,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 			It("should fail if mirror configMap specified but not found", func() {
 				asc = newASCWithMirrorRegistryConfig()
 				ascr = newTestReconciler(asc, route, assistedCM, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
-				AssertReconcileFailure(ctx, log, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileFailure(ctx, log, asc, ascr.newAssistedServiceDeployment)
 			})
 
 			It("should add assisted and mirror config hash annotations", func() {
@@ -2249,8 +2218,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 					},
 				}
 				ascr = newTestReconciler(asc, route, mirrorCM, assistedCM, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
-				AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAssistedServiceDeployment)
 
 				found := &appsv1.Deployment{}
 				Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -2265,8 +2233,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 			It("should fail if not found", func() {
 				asc = newASCWithCMAnnotation()
 				ascr = newTestReconciler(asc, route, assistedCM, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
-				AssertReconcileFailure(ctx, log, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileFailure(ctx, log, asc, ascr.newAssistedServiceDeployment)
 			})
 
 			It("should add user config hash annotation by default", func() {
@@ -2281,8 +2248,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 					},
 				}
 				ascr = newTestReconciler(asc, route, userCM, assistedCM, assistedTrustedCM)
-				ascc = initASC(ascr, asc)
-				AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAssistedServiceDeployment)
+				AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAssistedServiceDeployment)
 
 				found := &appsv1.Deployment{}
 				Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -2297,8 +2263,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 	It("should expose two ports for ipxe", func() {
 		asc = newASCDefault()
 		ascr = newTestReconciler(asc, route, assistedCM, assistedTrustedCM)
-		ascc = initASC(ascr, asc)
-		AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAssistedServiceDeployment)
+		AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAssistedServiceDeployment)
 
 		found := &appsv1.Deployment{}
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -2311,8 +2276,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 	It("deploys the default image when no base image annotation is present", func() {
 		asc = newASCDefault()
 		ascr = newTestReconciler(asc, route, assistedCM, assistedTrustedCM)
-		ascc = initASC(ascr, asc)
-		AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAssistedServiceDeployment)
+		AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAssistedServiceDeployment)
 
 		found := &appsv1.Deployment{}
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -2323,8 +2287,7 @@ var _ = Describe("ensureAssistedServiceDeployment", func() {
 		asc = newASCDefault()
 		setAnnotation(&asc.ObjectMeta, serviceImageBaseAnnotation, "el10")
 		ascr = newTestReconciler(asc, route, assistedCM, assistedTrustedCM)
-		ascc = initASC(ascr, asc)
-		AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAssistedServiceDeployment)
+		AssertReconcileSuccess(ctx, log, ascr.Client, asc, ascr.newAssistedServiceDeployment)
 
 		found := &appsv1.Deployment{}
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -2653,54 +2616,48 @@ var _ = Describe("newAssistedCM", func() {
 
 	It("INSTALL_INVOKER", func() {
 		ascr := newTestReconciler(asc, route, imageRoute, clusterTrustedCM)
-		ascc := initASC(ascr, asc)
-		ensureNewAssistedConfigmapValue(ctx, log, ascr, ascc, "INSTALL_INVOKER", "assisted-installer-operator")
+		ensureNewAssistedConfigmapValue(ctx, log, ascr, asc, "INSTALL_INVOKER", "assisted-installer-operator")
 	})
 
 	It("sets the base URLs", func() {
 		ascr := newTestReconciler(asc, route, imageRoute, clusterTrustedCM)
-		ascc := initASC(ascr, asc)
-		ensureNewAssistedConfigmapValue(ctx, log, ascr, ascc, "SERVICE_BASE_URL", fmt.Sprintf("https://%s", testHost))
-		ensureNewAssistedConfigmapValue(ctx, log, ascr, ascc, "IMAGE_SERVICE_BASE_URL", fmt.Sprintf("https://%s.images", testHost))
+		ensureNewAssistedConfigmapValue(ctx, log, ascr, asc, "SERVICE_BASE_URL", fmt.Sprintf("https://%s", testHost))
+		ensureNewAssistedConfigmapValue(ctx, log, ascr, asc, "IMAGE_SERVICE_BASE_URL", fmt.Sprintf("https://%s.images", testHost))
 	})
 
 	It("default public container registries", func() {
 		ascr := newTestReconciler(asc, route, imageRoute, clusterTrustedCM)
-		ascc := initASC(ascr, asc)
-		ensureNewAssistedConfigmapValue(ctx, log, ascr, ascc, "PUBLIC_CONTAINER_REGISTRIES", "quay.io,registry.ci.openshift.org")
+		ensureNewAssistedConfigmapValue(ctx, log, ascr, asc, "PUBLIC_CONTAINER_REGISTRIES", "quay.io,registry.ci.openshift.org")
 	})
 	It("adds unqualified-search-registries", func() {
 		asc.Spec.MirrorRegistryRef = &corev1.LocalObjectReference{Name: testMirrorRegConfigmapName}
 		mirrorCM.Data[mirrorRegistryRefRegistryConfKey] = registryConf
 		ascr := newTestReconciler(asc, route, imageRoute, mirrorCM, clusterTrustedCM)
-		ascc := initASC(ascr, asc)
 		ensureNewAssistedConfigmapValue(
-			ctx, log, ascr, ascc, "PUBLIC_CONTAINER_REGISTRIES", "quay.io,registry.ci.openshift.org,registry.access.redhat.com,docker.io",
+			ctx, log, ascr, asc, "PUBLIC_CONTAINER_REGISTRIES", "quay.io,registry.ci.openshift.org,registry.access.redhat.com,docker.io",
 		)
 	})
 	It("adds mirror registries", func() {
 		asc.Spec.MirrorRegistryRef = &corev1.LocalObjectReference{Name: testMirrorRegConfigmapName}
 		mirrorCM.Data[mirrorRegistryRefRegistryConfKey] = registryConf
 		ascr := newTestReconciler(asc, route, imageRoute, mirrorCM, clusterTrustedCM)
-		ascc := initASC(ascr, asc)
 		ensureNewAssistedConfigmapValue(
 			ctx,
 			log,
 			ascr,
-			ascc,
+			asc,
 			"PUBLIC_CONTAINER_REGISTRIES",
 			"quay.io,registry.ci.openshift.org,registry.access.redhat.com,docker.io",
 		)
 	})
 	It("adds user-specified unauthenticated registries", func() {
 		ascr := newTestReconciler(asc, route, imageRoute, clusterTrustedCM)
-		ascc := initASC(ascr, asc)
 		asc.Spec.UnauthenticatedRegistries = []string{"example.com"}
 		ensureNewAssistedConfigmapValue(
 			ctx,
 			log,
 			ascr,
-			ascc,
+			asc,
 			"PUBLIC_CONTAINER_REGISTRIES",
 			"quay.io,registry.ci.openshift.org,example.com",
 		)
@@ -2710,12 +2667,11 @@ var _ = Describe("newAssistedCM", func() {
 		asc.Spec.MirrorRegistryRef = &corev1.LocalObjectReference{Name: testMirrorRegConfigmapName}
 		mirrorCM.Data[mirrorRegistryRefRegistryConfKey] = registryConf
 		ascr := newTestReconciler(asc, route, imageRoute, mirrorCM, clusterTrustedCM)
-		ascc := initASC(ascr, asc)
 		ensureNewAssistedConfigmapValue(
 			ctx,
 			log,
 			ascr,
-			ascc,
+			asc,
 			"PUBLIC_CONTAINER_REGISTRIES",
 			"quay.io,registry.ci.openshift.org,registry.access.redhat.com,docker.io,example.com")
 	})
@@ -2752,24 +2708,21 @@ var _ = Describe("getDeploymentData", func() {
 		cm.Data["DEPLOYMENT_TYPE"] = "TEST"
 		cm.Data["DEPLOYMENT_VERSION"] = "1.0.0"
 		ascr := newTestReconciler(asc)
-		ascc := initASC(ascr, asc)
-		ascr.getDeploymentData(ctx, cm, ascc)
+		ascr.getDeploymentData(ctx, cm, asc)
 		Expect(cm.Data["DEPLOYMENT_TYPE"]).To(Equal("TEST"))
 		Expect(cm.Data["DEPLOYMENT_VERSION"]).To(Equal("1.0.0"))
 	})
 	It("gets the ACM DEPLOYMENT TYPE and VERSION when the ACM deployment exists", func() {
 		deploy := createDeploy(acmDeployName, acmDeployNamespace, acmContainerName, "1.1.1")
 		ascr := newTestReconciler(asc, deploy)
-		ascc := initASC(ascr, asc)
-		ascr.getDeploymentData(ctx, cm, ascc)
+		ascr.getDeploymentData(ctx, cm, asc)
 		Expect(cm.Data["DEPLOYMENT_TYPE"]).To(Equal("ACM"))
 		Expect(cm.Data["DEPLOYMENT_VERSION"]).To(Equal("1.1.1"))
 	})
 	It("gets the MCE DEPLOYMENT TYPE and VERSION when the ACM deployment doesn't exists", func() {
 		deploy := createDeploy(mceDeployName, mceDeployNamespace, mceContainerName, "1.2.3")
 		ascr := newTestReconciler(asc, deploy)
-		ascc := initASC(ascr, asc)
-		ascr.getDeploymentData(ctx, cm, ascc)
+		ascr.getDeploymentData(ctx, cm, asc)
 		Expect(cm.Data["DEPLOYMENT_TYPE"]).To(Equal("MCE"))
 		Expect(cm.Data["DEPLOYMENT_VERSION"]).To(Equal("1.2.3"))
 	})
@@ -2777,32 +2730,28 @@ var _ = Describe("getDeploymentData", func() {
 		acmDeploy := createDeploy(acmDeployName, acmDeployNamespace, acmContainerName, "1.1.1")
 		mceDeploy := createDeploy(mceDeployName, mceDeployNamespace, mceContainerName, "1.2.3")
 		ascr := newTestReconciler(asc, acmDeploy, mceDeploy)
-		ascc := initASC(ascr, asc)
-		ascr.getDeploymentData(ctx, cm, ascc)
+		ascr.getDeploymentData(ctx, cm, asc)
 		Expect(cm.Data["DEPLOYMENT_TYPE"]).To(Equal("ACM"))
 		Expect(cm.Data["DEPLOYMENT_VERSION"]).To(Equal("1.1.1"))
 	})
 	It("sets the DEPLOYMENT TYPE and VERSION to operator when both ACM/MCE don't exist", func() {
 		ascr := newTestReconciler(asc)
-		ascc := initASC(ascr, asc)
-		ascr.getDeploymentData(ctx, cm, ascc)
-		version := ServiceImage(ascc.Object)
+		ascr.getDeploymentData(ctx, cm, asc)
+		version := ServiceImage(asc)
 		Expect(cm.Data["DEPLOYMENT_TYPE"]).To(Equal("Operator"))
 		Expect(cm.Data["DEPLOYMENT_VERSION"]).To(Equal(version))
 	})
 	It("sets DEPLOYMENT VERSION to unknown when env var OPERATOR_VERSION doesn't exist in the deployment", func() {
 		deploy := createDeploy(acmDeployName, acmDeployNamespace, acmContainerName, "")
 		ascr := newTestReconciler(asc, deploy)
-		ascc := initASC(ascr, asc)
-		ascr.getDeploymentData(ctx, cm, ascc)
+		ascr.getDeploymentData(ctx, cm, asc)
 		Expect(cm.Data["DEPLOYMENT_TYPE"]).To(Equal("ACM"))
 		Expect(cm.Data["DEPLOYMENT_VERSION"]).To(Equal("Unknown"))
 	})
 	It("sets DEPLOYMENT VERSION to unknown when the container doesn't exist in the deployment", func() {
 		deploy := createDeploy(acmDeployName, acmDeployNamespace, "", "1.1.1")
 		ascr := newTestReconciler(asc, deploy)
-		ascc := initASC(ascr, asc)
-		ascr.getDeploymentData(ctx, cm, ascc)
+		ascr.getDeploymentData(ctx, cm, asc)
 		Expect(cm.Data["DEPLOYMENT_TYPE"]).To(Equal("ACM"))
 		Expect(cm.Data["DEPLOYMENT_VERSION"]).To(Equal("Unknown"))
 	})
@@ -2839,8 +2788,8 @@ func createDeploy(name, namespace, containerName, version string) *appsv1.Deploy
 	}
 }
 
-func ensureNewAssistedConfigmapValue(ctx context.Context, log logrus.FieldLogger, ascr *AgentServiceConfigReconciler, ascc ASC, key, value string) {
-	cm, mutateFn, err := ascr.newAssistedCM(ctx, log, ascc)
+func ensureNewAssistedConfigmapValue(ctx context.Context, log logrus.FieldLogger, ascr *AgentServiceConfigReconciler, asc *aiv1beta1.AgentServiceConfig, key, value string) {
+	cm, mutateFn, err := ascr.newAssistedCM(ctx, log, asc)
 
 	Expect(err).ToNot(HaveOccurred())
 	Expect(mutateFn()).To(Succeed())
@@ -3066,7 +3015,6 @@ var _ = Describe("ForceInsecurePolicyJson annotation", func() {
 		log               logrus.FieldLogger
 		asc               *aiv1beta1.AgentServiceConfig
 		ascr              *AgentServiceConfigReconciler
-		ascc              ASC
 		route             *routev1.Route
 		imageRoute        *routev1.Route
 		assistedCM        *corev1.ConfigMap
@@ -3117,9 +3065,8 @@ var _ = Describe("ForceInsecurePolicyJson annotation", func() {
 		It("should not include FORCE_INSECURE_POLICY_JSON in ConfigMap", func() {
 			asc = newASCDefault()
 			ascr = newTestReconciler(asc, route, imageRoute, assistedCM, assistedTrustedCM)
-			ascc = initASC(ascr, asc)
 
-			cm, mutateFn, err := ascr.newAssistedCM(ctx, log, ascc)
+			cm, mutateFn, err := ascr.newAssistedCM(ctx, log, asc)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(mutateFn()).To(Succeed())
 			configMap := cm.(*corev1.ConfigMap)
@@ -3132,9 +3079,8 @@ var _ = Describe("ForceInsecurePolicyJson annotation", func() {
 		It("should include FORCE_INSECURE_POLICY_JSON=true in ConfigMap", func() {
 			asc = newASCWithForceInsecurePolicyAnnotation()
 			ascr = newTestReconciler(asc, route, imageRoute, assistedCM, assistedTrustedCM)
-			ascc = initASC(ascr, asc)
 
-			ensureNewAssistedConfigmapValue(ctx, log, ascr, ascc, "FORCE_INSECURE_POLICY_JSON", "true")
+			ensureNewAssistedConfigmapValue(ctx, log, ascr, asc, "FORCE_INSECURE_POLICY_JSON", "true")
 		})
 	})
 
@@ -3142,9 +3088,8 @@ var _ = Describe("ForceInsecurePolicyJson annotation", func() {
 		It("should not include FORCE_INSECURE_POLICY_JSON in ConfigMap", func() {
 			asc = newASCWithForceInsecurePolicyAnnotationFalse()
 			ascr = newTestReconciler(asc, route, imageRoute, assistedCM, assistedTrustedCM)
-			ascc = initASC(ascr, asc)
 
-			cm, mutateFn, err := ascr.newAssistedCM(ctx, log, ascc)
+			cm, mutateFn, err := ascr.newAssistedCM(ctx, log, asc)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(mutateFn()).To(Succeed())
 			configMap := cm.(*corev1.ConfigMap)
@@ -3158,9 +3103,8 @@ var _ = Describe("ForceInsecurePolicyJson annotation", func() {
 			asc = newASCDefault()
 			asc.ObjectMeta.Annotations = map[string]string{allowUnrestrictedImagePulls: "invalid"}
 			ascr = newTestReconciler(asc, route, imageRoute, assistedCM, assistedTrustedCM)
-			ascc = initASC(ascr, asc)
 
-			cm, mutateFn, err := ascr.newAssistedCM(ctx, log, ascc)
+			cm, mutateFn, err := ascr.newAssistedCM(ctx, log, asc)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(mutateFn()).To(Succeed())
 			configMap := cm.(*corev1.ConfigMap)
@@ -3699,13 +3643,13 @@ var _ = Describe("AgentServiceConfig immutable annotations validation", func() {
 			}
 			Expect(reconciler.Client.Create(ctx, ascObj)).To(Succeed())
 
-			By("reconcile and allow ASC to save initial annotation state")
+			By("reconcile and allow *aiv1beta1.AgentServiceConfig to save initial annotation state")
 			result, err := reconciler.Reconcile(ctx, req)
 			Expect(err).ToNot(HaveOccurred())
 			// Expected requeuing due to other objects
 			Expect(result.Requeue).To(BeTrue())
 
-			By("reconcile again with no changes to the ASC notations")
+			By("reconcile again with no changes to the *aiv1beta1.AgentServiceConfig notations")
 			result, err = reconciler.Reconcile(ctx, req)
 			Expect(err).ToNot(HaveOccurred())
 			// Expected requeuing due to other objects
@@ -3763,7 +3707,7 @@ var _ = Describe("AgentServiceConfig immutable annotations validation", func() {
 			}
 			Expect(reconciler.Client.Create(ctx, ascObj)).To(Succeed())
 
-			By("reconcile allowing ASC to store annotation's initial state")
+			By("reconcile allowing *aiv1beta1.AgentServiceConfig to store annotation's initial state")
 			result, err := reconciler.Reconcile(ctx, req)
 			Expect(err).ToNot(HaveOccurred())
 			// Expected requeuing due to other objects
