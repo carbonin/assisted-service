@@ -199,17 +199,15 @@ func main() {
 	}
 	introspector := getPodIntrospector(log, mgr)
 	if err = (&controllers.AgentServiceConfigReconciler{
-		AgentServiceConfigReconcileContext: controllers.AgentServiceConfigReconcileContext{
-			Log:             log,
-			Scheme:          mgr.GetScheme(),
-			NodeSelector:    nodeSelector,
-			Tolerations:     tolerations,
-			Recorder:        mgr.GetEventRecorderFor("agentserviceconfig-controller"),
-			PodIntrospector: introspector,
-			IsOpenShift:     isOpenShift,
-		},
-		Client:    mgr.GetClient(),
-		Namespace: ns,
+		Log:             log,
+		Scheme:          mgr.GetScheme(),
+		NodeSelector:    nodeSelector,
+		Tolerations:     tolerations,
+		Recorder:        mgr.GetEventRecorderFor("agentserviceconfig-controller"),
+		PodIntrospector: introspector,
+		IsOpenShift:     isOpenShift,
+		Client:          mgr.GetClient(),
+		Namespace:       ns,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AgentServiceConfig")
 		os.Exit(1)

@@ -70,17 +70,15 @@ func newTestReconciler(initObjs ...client.Object) *AgentServiceConfigReconciler 
 	c := fakeclient.NewClientBuilder().WithScheme(schemes).WithStatusSubresource(initObjs...).
 		WithRuntimeObjects(rtoList...).Build()
 	return &AgentServiceConfigReconciler{
-		AgentServiceConfigReconcileContext: AgentServiceConfigReconcileContext{
-			Scheme: schemes,
-			Log:    logrus.New(),
-			// TODO(djzager): If we need to verify emitted events
-			// https://github.com/kubernetes/kubernetes/blob/ea0764452222146c47ec826977f49d7001b0ea8c/pkg/controller/statefulset/stateful_pod_control_test.go#L474
-			Recorder:        record.NewFakeRecorder(10),
-			IsOpenShift:     true,
-			PodIntrospector: &mockPodIntrospector{imagePullSecrets: nil}, // Default to no imagePullSecrets
-		},
-		Client:    c,
-		Namespace: testNamespace,
+		Scheme: schemes,
+		Log:    logrus.New(),
+		// TODO(djzager): If we need to verify emitted events
+		// https://github.com/kubernetes/kubernetes/blob/ea0764452222146c47ec826977f49d7001b0ea8c/pkg/controller/statefulset/stateful_pod_control_test.go#L474
+		Recorder:        record.NewFakeRecorder(10),
+		IsOpenShift:     true,
+		PodIntrospector: &mockPodIntrospector{imagePullSecrets: nil}, // Default to no imagePullSecrets
+		Client:          c,
+		Namespace:       testNamespace,
 	}
 }
 
@@ -175,15 +173,13 @@ var _ = Describe("Agent service config controller ConfigMap validation", func() 
 
 		// Create the reconciler:
 		reconciler = &AgentServiceConfigReconciler{
-			AgentServiceConfigReconcileContext: AgentServiceConfigReconcileContext{
-				Scheme:          cluster.Scheme(),
-				Log:             logrusLogger,
-				Recorder:        cluster.Recorder(),
-				IsOpenShift:     true,
-				PodIntrospector: &mockPodIntrospector{imagePullSecrets: nil}, // Default to no imagePullSecrets
-			},
-			Client:    client,
-			Namespace: "assisted-installer",
+			Scheme:          cluster.Scheme(),
+			Log:             logrusLogger,
+			Recorder:        cluster.Recorder(),
+			IsOpenShift:     true,
+			PodIntrospector: &mockPodIntrospector{imagePullSecrets: nil}, // Default to no imagePullSecrets
+			Client:          client,
+			Namespace:       "assisted-installer",
 		}
 
 		clusterTrustedCM := &corev1.ConfigMap{
@@ -1328,7 +1324,7 @@ var _ = Describe("newImageServiceService", func() {
 			found := &corev1.Service{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).ToNot(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newImageServiceService)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceService)
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
 			Expect(found.ObjectMeta.Annotations).NotTo(BeNil())
 			Expect(found.ObjectMeta.Annotations[servingCertAnnotation]).To(Equal(imageServiceName))
@@ -1337,11 +1333,11 @@ var _ = Describe("newImageServiceService", func() {
 
 	Context("with existing service", func() {
 		It("should add annotation", func() {
-			s, _, _ := newImageServiceService(ctx, log, ascc)
+			s, _, _ := ascr.newImageServiceService(ctx, log, ascc)
 			service := s.(*corev1.Service)
 			Expect(ascr.Client.Create(ctx, service)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newImageServiceService)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceService)
 
 			found := &corev1.Service{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -1371,7 +1367,7 @@ var _ = Describe("newImageServiceRoute", func() {
 			found := &routev1.Route{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).ToNot(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newImageServiceRoute)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceRoute)
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
 		})
 	})
@@ -1379,12 +1375,12 @@ var _ = Describe("newImageServiceRoute", func() {
 	Context("with existing route", func() {
 		It("should not change route Host", func() {
 			routeHost := "route.example.com"
-			r, _, _ := newImageServiceRoute(ctx, log, ascc)
+			r, _, _ := ascr.newImageServiceRoute(ctx, log, ascc)
 			route := r.(*routev1.Route)
 			route.Spec.Host = routeHost
 			Expect(ascr.Client.Create(ctx, route)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newImageServiceRoute)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceRoute)
 
 			found := &routev1.Route{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -1413,7 +1409,7 @@ var _ = Describe("newImageServiceServiceAccount", func() {
 			found := &corev1.ServiceAccount{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).ToNot(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newImageServiceServiceAccount)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceServiceAccount)
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
 		})
 	})
@@ -1439,18 +1435,18 @@ var _ = Describe("newImageServiceConfigMap", func() {
 			found := &corev1.ConfigMap{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).ToNot(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newImageServiceConfigMap)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceConfigMap)
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
 		})
 	})
 
 	Context("with existing configmap", func() {
 		It("should add annotation", func() {
-			cm, _, _ := newImageServiceConfigMap(ctx, log, ascc)
+			cm, _, _ := ascr.newImageServiceConfigMap(ctx, log, ascc)
 			configMap := cm.(*corev1.ConfigMap)
 			Expect(ascr.Client.Create(ctx, configMap)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newImageServiceConfigMap)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newImageServiceConfigMap)
 
 			found := &corev1.ConfigMap{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: imageServiceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -1718,7 +1714,7 @@ var _ = Describe("ensureAgentRoute", func() {
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName,
 				Namespace: testNamespace}, found)).ToNot(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newAgentRoute)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAgentRoute)
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName,
 				Namespace: testNamespace}, found)).To(Succeed())
 		})
@@ -1727,12 +1723,12 @@ var _ = Describe("ensureAgentRoute", func() {
 	Context("with existing route", func() {
 		It("should not change route Host", func() {
 			routeHost := "route.example.com"
-			r, _, _ := newAgentRoute(ctx, log, ascc)
+			r, _, _ := ascr.newAgentRoute(ctx, log, ascc)
 			route := r.(*routev1.Route)
 			route.Spec.Host = routeHost
 			Expect(ascr.Client.Create(ctx, route)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newAgentRoute)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAgentRoute)
 
 			found := &routev1.Route{}
 			Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName,
@@ -1774,7 +1770,7 @@ var _ = Describe("ensureAgentLocalAuthSecret", func() {
 			}
 			Expect(ascr.Client.Create(ctx, localAuthSecret)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newAgentLocalAuthSecret)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAgentLocalAuthSecret)
 
 			found := &corev1.Secret{}
 			err := ascr.Client.Get(ctx, types.NamespacedName{Name: agentLocalAuthSecretName, Namespace: testNamespace}, found)
@@ -1787,7 +1783,7 @@ var _ = Describe("ensureAgentLocalAuthSecret", func() {
 
 	Context("with no existing local auth secret", func() {
 		It("should create new keys and not overwrite them in subsequent reconciles", func() {
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newAgentLocalAuthSecret)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAgentLocalAuthSecret)
 
 			found := &corev1.Secret{}
 			err := ascr.Client.Get(ctx, types.NamespacedName{Name: agentLocalAuthSecretName,
@@ -1801,7 +1797,7 @@ var _ = Describe("ensureAgentLocalAuthSecret", func() {
 			Expect(foundPublicKey).ToNot(Equal(publicKey))
 			Expect(foundPublicKey).ToNot(BeNil())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newAgentLocalAuthSecret)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newAgentLocalAuthSecret)
 			Expect(err).To(BeNil())
 
 			foundAfterNextEnsure := &corev1.Secret{}
@@ -1851,7 +1847,7 @@ var _ = Describe("ensurePostgresSecret", func() {
 			}
 			Expect(ascr.Client.Create(ctx, dbSecret)).To(Succeed())
 
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newPostgresSecret)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newPostgresSecret)
 
 			found := &corev1.Secret{}
 			err := ascr.Client.Get(ctx, types.NamespacedName{Name: databaseName, Namespace: testNamespace}, found)
@@ -1863,7 +1859,7 @@ var _ = Describe("ensurePostgresSecret", func() {
 
 	Context("with no existing postgres secret", func() {
 		It("should create new secret with password", func() {
-			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, newPostgresSecret)
+			AssertReconcileSuccess(ctx, log, ascr.Client, ascc, ascr.newPostgresSecret)
 
 			found := &corev1.Secret{}
 			err := ascr.Client.Get(ctx, types.NamespacedName{Name: databaseName, Namespace: testNamespace}, found)
@@ -1889,7 +1885,7 @@ var _ = Describe("newServiceMonitor", func() {
 		ascr := newTestReconciler(asc)
 		ascc := initASC(ascr, asc)
 
-		AssertReconcileSuccess(ctx, common.GetTestLog(), ascr.Client, ascc, newServiceMonitor)
+		AssertReconcileSuccess(ctx, common.GetTestLog(), ascr.Client, ascc, ascr.newServiceMonitor)
 
 		found := &monitoringv1.ServiceMonitor{}
 		Expect(ascr.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: testNamespace}, found)).To(Succeed())
@@ -3192,7 +3188,7 @@ var _ = Describe("Reconcile on non-OCP clusters", func() {
 		ctx = context.Background()
 
 		reconciler = newTestReconciler(asc)
-		reconciler.AgentServiceConfigReconcileContext.IsOpenShift = false
+		reconciler.IsOpenShift = false
 
 		// Create Certificate CRD
 		certCRD := &apiextensionsv1.CustomResourceDefinition{

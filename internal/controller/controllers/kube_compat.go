@@ -44,7 +44,7 @@ func ingressTLSSecretName(ingressName string) string {
 	return fmt.Sprintf("%s-ingress", ingressName)
 }
 
-func newIngress(asc ASC, name string, host string, port int32) (client.Object, controllerutil.MutateFn, error) {
+func (r *AgentServiceConfigReconciler) newIngress(asc ASC, name string, host string, port int32) (client.Object, controllerutil.MutateFn, error) {
 	if asc.spec.Ingress == nil {
 		return nil, nil, fmt.Errorf("ingress config is required for non-OpenShift deployments")
 	}
@@ -52,12 +52,12 @@ func newIngress(asc ASC, name string, host string, port int32) (client.Object, c
 	ingress := &netv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: asc.namespace,
+			Namespace: r.Namespace,
 		},
 	}
 
 	mutateFn := func() error {
-		if err := controllerutil.SetControllerReference(asc.Object, ingress, asc.rec.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(asc.Object, ingress, r.Scheme); err != nil {
 			return err
 		}
 		setAnnotation(&ingress.ObjectMeta, certManagerIssuerAnnotation, caIssuerName)
@@ -91,25 +91,25 @@ func newIngress(asc ASC, name string, host string, port int32) (client.Object, c
 	return ingress, mutateFn, nil
 }
 
-func certManagerComponents() []component {
+func (r *AgentServiceConfigReconciler) certManagerComponents() []component {
 	return []component{
-		{"SelfSignedIssuer", aiv1beta1.ReasonCertificateFailure, newSelfSignedIssuer},
-		{"CAIssuer", aiv1beta1.ReasonCertificateFailure, newCAIssuer},
-		{"CACert", aiv1beta1.ReasonCertificateFailure, newCACert},
-		{"WebhookCert", aiv1beta1.ReasonCertificateFailure, newWebhookCert},
+		{"SelfSignedIssuer", aiv1beta1.ReasonCertificateFailure, r.newSelfSignedIssuer},
+		{"CAIssuer", aiv1beta1.ReasonCertificateFailure, r.newCAIssuer},
+		{"CACert", aiv1beta1.ReasonCertificateFailure, r.newCACert},
+		{"WebhookCert", aiv1beta1.ReasonCertificateFailure, r.newWebhookCert},
 	}
 }
 
 // newSelfSignedIssuer describes how to create an Issuer for the self-signed root issuer
-func newSelfSignedIssuer(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
+func (r *AgentServiceConfigReconciler) newSelfSignedIssuer(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
 	is := &certtypes.Issuer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      selfSignedIssuerName,
-			Namespace: asc.namespace,
+			Namespace: r.Namespace,
 		},
 	}
 	mutateFn := func() error {
-		if err := controllerutil.SetControllerReference(asc.Object, is, asc.rec.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(asc.Object, is, r.Scheme); err != nil {
 			return err
 		}
 		is.Spec = certtypes.IssuerSpec{
@@ -123,16 +123,16 @@ func newSelfSignedIssuer(ctx context.Context, log logrus.FieldLogger, asc ASC) (
 }
 
 // newCACert describes how to create a Certificate for the root CA
-func newCACert(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
+func (r *AgentServiceConfigReconciler) newCACert(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
 	cert := &certtypes.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      caIssuerName,
-			Namespace: asc.namespace,
+			Namespace: r.Namespace,
 		},
 	}
 
 	mutateFn := func() error {
-		if err := controllerutil.SetControllerReference(asc.Object, cert, asc.rec.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(asc.Object, cert, r.Scheme); err != nil {
 			return err
 		}
 		cert.Spec.CommonName = caCommonName
@@ -149,15 +149,15 @@ func newCACert(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Obj
 }
 
 // newCAIssuer describes how to create an Issuer for creating certificates signed by the root CA cert
-func newCAIssuer(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
+func (r *AgentServiceConfigReconciler) newCAIssuer(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
 	is := &certtypes.Issuer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      caIssuerName,
-			Namespace: asc.namespace,
+			Namespace: r.Namespace,
 		},
 	}
 	mutateFn := func() error {
-		if err := controllerutil.SetControllerReference(asc.Object, is, asc.rec.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(asc.Object, is, r.Scheme); err != nil {
 			return err
 		}
 		is.Spec = certtypes.IssuerSpec{
@@ -174,16 +174,16 @@ func newCAIssuer(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.O
 }
 
 // newCertificate describes how to create a Certificate for a service signed by the assisted installer CA
-func newCertificate(serviceName string, asc ASC) (client.Object, controllerutil.MutateFn, error) {
+func (r *AgentServiceConfigReconciler) newCertificate(serviceName string, asc ASC) (client.Object, controllerutil.MutateFn, error) {
 	cert := &certtypes.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName,
-			Namespace: asc.namespace,
+			Namespace: r.Namespace,
 		},
 	}
 
 	mutateFn := func() error {
-		if err := controllerutil.SetControllerReference(asc.Object, cert, asc.rec.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(asc.Object, cert, r.Scheme); err != nil {
 			return err
 		}
 		cert.Spec.SecretName = serviceName
@@ -192,8 +192,8 @@ func newCertificate(serviceName string, asc ASC) (client.Object, controllerutil.
 			Name: caIssuerName,
 		}
 		cert.Spec.DNSNames = []string{
-			fmt.Sprintf("%s.%s.svc", serviceName, asc.namespace),
-			fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, asc.namespace),
+			fmt.Sprintf("%s.%s.svc", serviceName, r.Namespace),
+			fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, r.Namespace),
 		}
 		return nil
 	}
@@ -201,6 +201,6 @@ func newCertificate(serviceName string, asc ASC) (client.Object, controllerutil.
 	return cert, mutateFn, nil
 }
 
-func newWebhookCert(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
-	return newCertificate(webhookServiceName, asc)
+func (r *AgentServiceConfigReconciler) newWebhookCert(ctx context.Context, log logrus.FieldLogger, asc ASC) (client.Object, controllerutil.MutateFn, error) {
+	return r.newCertificate(webhookServiceName, asc)
 }
