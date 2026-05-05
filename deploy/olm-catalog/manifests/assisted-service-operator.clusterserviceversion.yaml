@@ -460,9 +460,6 @@ spec:
         displayName: List of container registries without authentication
         path: unauthenticatedRegistries
       version: v1beta1
-    - kind: HypershiftAgentServiceConfig
-      name: hypershiftagentserviceconfigs.agent-install.openshift.io
-      version: v1beta1
     - description: InfraEnv represents an infrastructure environment for discovering
         and booting hosts. It generates a discovery ISO or iPXE configuration that
         hosts can boot from to register as Agents. Multiple Agents can be discovered
